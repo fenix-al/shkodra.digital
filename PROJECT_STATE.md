@@ -1,253 +1,131 @@
 # PROJECT STATE — SHKODRA.DIGITAL
-# Last updated: 2026-03-30
+# Last updated: 2026-03-31
 # Phase: 1 — Zdralë Pedestrian Zone Access Control & Citizen Reporting
 
 ---
 
-## CURRENT STATUS: SCAFFOLDING
+## CURRENT STATUS: SPRINT 2 COMPLETE — ADMIN CORE DONE
 
 ```
 [DONE]   Next.js 16 + React 19 + Tailwind v4 base installed
 [DONE]   CLAUDE.md architecture law established
-[DONE]   PROJECT_STATE.md tracking initialized
-[TODO]   Install remaining dependencies (see Phase 0)
-[TODO]   Database schema designed and applied
-[TODO]   Supabase Auth + RLS configured
-[TODO]   Folder structure scaffolded
-[TODO]   Middleware + RBAC routing implemented
-[TODO]   Core features built (see Phase 1)
+[DONE]   TypeScript added (allowJs: true — mixed JS/TS project)
+[DONE]   Install remaining dependencies
+[DONE]   Database schema designed and applied
+[DONE]   Supabase Auth + RLS configured
+[DONE]   Folder structure scaffolded
+[DONE]   Proxy (RBAC routing) implemented
+[DONE]   Sprint 1 — Login page (glassmorphism, Albanian UI, Supabase auth)
+[DONE]   Sprint 2 — Admin Core (dashboard, authorizations, sidebar, shell)
+[WIP]    Sprint 3 — Police Operations
+[TODO]   Sprint 4 — Citizen Portal
+[TODO]   Sprint 5 — Analytics & Polish
 ```
 
 ---
 
-## PHASE 0 — ENVIRONMENT SETUP
+## COMPLETED THIS SESSION (2026-03-31)
 
-### 0.1 Install Dependencies
-```bash
-# Supabase
-npm install @supabase/supabase-js @supabase/ssr
+### TypeScript Migration
+- Added `tsconfig.json` with `allowJs: true` — new files are `.tsx/.ts`, old infrastructure stays `.js`
+- Installed `typescript`, `@types/react`, `@types/node`
+- Created `src/types/admin.ts` — canonical types: `PlateStatus`, `VehicleType`, `AuthorizedPlate`, `ZoneStats`, `ScanLog`, `ScanAction`, `ScanMethod`, `UserRole`, `UserProfile`
+- Created `src/lib/cx.ts` — type-safe `clsx` + `tailwind-merge` helper
 
-# shadcn/ui (Tailwind v4 compatible)
-npx shadcn@latest init
-# When prompted: Dark mode, CSS variables, src/components/ui path
+### Admin Shell & Sidebar (TypeScript, Production-Grade)
+- `src/components/admin/AdminShell.tsx` — client shell managing mobile drawer state + dynamic page title via `usePathname()` mapped to Albanian titles
+- `src/components/admin/AdminSidebar.tsx` — fully typed, mobile slide-in with `translate-x` CSS transition, `aria-current="page"`, logout via `useTransition`
+- `src/components/admin/PlatesTable.tsx` — 7 columns (Targa, Pronari, Lloji, Data, Statusi, Hyrja e fundit, Veprime), `useOptimistic` for instant approve/reject, `STATUS_CONFIG` record pattern, polished empty state with reset button
+- Deleted old `AdminSidebar.js` and `PlatesTable.js`
 
-# QR libraries
-npm install react-qr-code @zxing/library
+### Admin Layout & Pages
+- `src/app/admin/layout.js` — now a lean server component: fetches profile, renders `<AdminShell>`; all shell chrome moved to AdminShell
+- `src/app/admin/autorizimet/page.js` — parallel fetch of `authorized_plates` + `scan_logs`; builds `lastEntryMap` to enrich each plate with `last_entry_at` before passing to PlatesTable
+- `src/app/admin/dashboard/page.js` — 7 parallel Supabase queries, real occupancy calculation (`ENTRY - EXIT`), StatCard components matching the 2026 design spec, occupancy progress bar, recent scan log feed
 
-# Crypto (Node built-in — no install needed for AES-256-GCM)
-```
-
-### 0.2 Environment Variables
-Create `.env.local` at project root:
-```
-NEXT_PUBLIC_SUPABASE_URL=<from Supabase project settings>
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<from Supabase project settings>
-SUPABASE_SERVICE_ROLE_KEY=<from Supabase project settings>
-SUPABASE_QR_SECRET=<generate: openssl rand -base64 32>
-```
-
-### 0.3 Scaffold Folder Structure
-Create all directories and stub files per CLAUDE.md Section 4.
+### Design System Updates
+- `src/app/layout.js` — Inter font loaded via `next/font/google`, CSS variable `--font-inter` registered
+- `src/app/globals.css` — `--font-sans` now maps to `--font-inter` (was self-referencing `--font-sans`)
+- `AdminShell.tsx` — header shows dynamic page title (left) + system status pill with `shadow-[0_0_8px_#10b981]` glow (right)
+- `PlatesTable.tsx` — plate number bumped to `text-lg`; action buttons are `opacity-0 group-hover:opacity-100 transition-opacity` (fade in on row hover)
+- `dashboard/page.js` `StatCard` — matches mock exactly: `font-black tracking-tighter` value, `text-[10px] font-bold uppercase tracking-widest` label, Live/Standby badge with `ArrowUpRight`
 
 ---
 
-## PHASE 1 — DATABASE SCHEMA
+## PHASE 0 — ENVIRONMENT SETUP ✅ COMPLETE
 
-### Tables to Create in Supabase
-
-#### `profiles`
-Extends Supabase `auth.users`. Created automatically on signup via trigger.
-```sql
-CREATE TABLE profiles (
-  id          UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
-  full_name   TEXT,
-  role        TEXT NOT NULL DEFAULT 'citizen'
-                CHECK (role IN ('super_admin', 'manager', 'police', 'citizen')),
-  badge_id    TEXT,                    -- for police officers
-  created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-```
-
-#### `authorized_plates`
-Vehicles authorized to enter the Zdralë zone.
-```sql
-CREATE TABLE authorized_plates (
-  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  owner_id        UUID REFERENCES profiles(id),
-  plate_number    TEXT NOT NULL UNIQUE,
-  owner_name      TEXT NOT NULL,
-  vehicle_type    TEXT,               -- 'car', 'motorcycle', 'delivery'
-  status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'approved', 'rejected', 'suspended')),
-  approved_by     UUID REFERENCES profiles(id),
-  approved_at     TIMESTAMPTZ,
-  expires_at      DATE,               -- NULL = indefinite
-  notes           TEXT,
-  created_at      TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE authorized_plates ENABLE ROW LEVEL SECURITY;
-```
-
-#### `scan_logs`
-Every QR scan / manual entry-exit event.
-```sql
-CREATE TABLE scan_logs (
-  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  plate_id        UUID REFERENCES authorized_plates(id),
-  plate_number    TEXT NOT NULL,      -- denormalized for fast queries
-  officer_id      UUID REFERENCES profiles(id),
-  action          TEXT NOT NULL CHECK (action IN ('ENTRY', 'EXIT')),
-  scan_method     TEXT NOT NULL CHECK (scan_method IN ('QR', 'MANUAL')),
-  location        TEXT DEFAULT 'Zona Zdrala',
-  scanned_at      TIMESTAMPTZ DEFAULT NOW(),
-  created_at      TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE scan_logs ENABLE ROW LEVEL SECURITY;
-```
-
-#### `citizen_reports`
-Geo-tagged issue reports from citizens.
-```sql
-CREATE TABLE citizen_reports (
-  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  reporter_id     UUID REFERENCES profiles(id),
-  category        TEXT NOT NULL,      -- 'parkimi_ilegal', 'ndriçimi', 'pastërtia', 'tjetër'
-  description     TEXT NOT NULL,
-  photo_url       TEXT,               -- Supabase Storage URL
-  latitude        DECIMAL(10, 8),
-  longitude       DECIMAL(11, 8),
-  status          TEXT NOT NULL DEFAULT 'hapur'
-                    CHECK (status IN ('hapur', 'në_shqyrtim', 'zgjidhur', 'refuzuar')),
-  resolved_by     UUID REFERENCES profiles(id),
-  resolved_at     TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE citizen_reports ENABLE ROW LEVEL SECURITY;
-```
-
-#### `zone_config`
-Configurable zone settings (managed by super_admin).
-```sql
-CREATE TABLE zone_config (
-  id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  zone_name       TEXT NOT NULL DEFAULT 'Zona Këmbësore Zdralë',
-  capacity        INTEGER NOT NULL DEFAULT 50,
-  is_active       BOOLEAN DEFAULT TRUE,
-  updated_by      UUID REFERENCES profiles(id),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE zone_config ENABLE ROW LEVEL SECURITY;
--- Seed with one row
-INSERT INTO zone_config (capacity) VALUES (50);
-```
+All dependencies installed, `.env.local` configured, folder structure scaffolded.
 
 ---
 
-## PHASE 2 — SUPABASE AUTH & RLS SETUP
+## PHASE 1 — DATABASE SCHEMA ✅ COMPLETE
 
-### 2.1 Auth Configuration (Supabase Dashboard)
-- [ ] Enable Email provider
-- [ ] Disable "Confirm email" for internal accounts (police/admin created by super_admin)
-- [ ] Configure Storage bucket: `report-photos` (public read, authenticated write)
-
-### 2.2 Profile Auto-Create Trigger
-```sql
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, full_name, role)
-  VALUES (
-    NEW.id,
-    NEW.raw_user_meta_data->>'full_name',
-    COALESCE(NEW.raw_user_meta_data->>'role', 'citizen')
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-```
-
-### 2.3 RLS Policies (implement per table)
-- [ ] `profiles`: users read own row; super_admin reads all; super_admin inserts/updates
-- [ ] `authorized_plates`: citizen reads own; police reads approved; manager reads all; manager updates status
-- [ ] `scan_logs`: police inserts; police/manager/admin reads; citizen reads own plate's logs
-- [ ] `citizen_reports`: citizen inserts own; manager reads/updates all; citizen reads own
-- [ ] `zone_config`: all authenticated read; only super_admin updates
+Tables created in Supabase: `profiles`, `authorized_plates`, `scan_logs`, `citizen_reports`, `zone_config`.
 
 ---
 
-## PHASE 3 — MIDDLEWARE & RBAC
+## PHASE 2 — SUPABASE AUTH & RLS ✅ COMPLETE
 
-### 3.1 middleware.js
-- [ ] Intercept all routes
-- [ ] Refresh Supabase session (cookie-based)
-- [ ] Read `profile.role` from session metadata
-- [ ] Redirect `/` to role-appropriate dashboard
-- [ ] Block unauthorized role access (e.g., `citizen` hitting `/admin/*`)
-
-### 3.2 Route Protection Map
-| Route Pattern | Required Role(s) |
-|---|---|
-| `/` | Public → redirect to login if unauthed |
-| `/(auth)/login` | Public |
-| `/(citizen)/dashboard` | `citizen` |
-| `/(citizen)/raporto` | `citizen` |
-| `/(police)/skaner` | `police`, `super_admin` |
-| `/(admin)/dashboard` | `manager`, `super_admin` |
-| `/(admin)/autorizimet` | `manager`, `super_admin` |
-| `/(admin)/raportet` | `manager`, `super_admin` |
+- Email provider enabled, confirm email disabled for internal accounts
+- `handle_new_user` trigger: role hardcoded to `'citizen'` (security fix applied)
+- `get_my_role()` SECURITY DEFINER helper with `SET search_path = public`
+- Full RLS policies on all 5 tables + `report-photos` Storage bucket
+- `report-photos` Storage bucket configured (public read, authenticated write)
 
 ---
 
-## PHASE 4 — FEATURE IMPLEMENTATION ORDER
+## PHASE 3 — MIDDLEWARE & RBAC ✅ COMPLETE
 
-### Sprint 1: Foundation
-- [ ] Supabase server/client helpers (`src/lib/supabase/`)
-- [ ] `requireRole()` helper (`src/lib/auth/roles.js`)
-- [ ] Middleware with session refresh + RBAC redirects
-- [ ] Login page `(auth)/login` — email/password, Albanian UI
-- [ ] Root layout + dark theme CSS variables
+`src/proxy.js` — Next.js 16 convention (`proxy()` export, not `middleware()`). Session refresh + role-based redirects. PUBLIC_ROUTES: `/login`. Protected: `/citizen`, `/police`, `/admin`.
 
-### Sprint 2: Admin Core
-- [ ] Admin dashboard layout (glassmorphism sidebar + header)
-- [ ] Live occupancy widget (Supabase Realtime)
-- [ ] Authorization management page (approve/reject plates)
-- [ ] `actions/authorizations.js` Server Functions
+---
 
-### Sprint 3: Police Operations
-- [ ] Police scanner page — camera QR scan + manual plate input
-- [ ] QR token validation logic (`src/lib/qr/token.js`)
-- [ ] Entry/Exit registration Server Function (`actions/scanner.js`)
-- [ ] Active log view (today's entries)
+## PHASE 4 — FEATURE IMPLEMENTATION
+
+### Sprint 1: Foundation ✅ COMPLETE
+- [x] Supabase server/client helpers
+- [x] `requireRole()` helper
+- [x] Proxy with session refresh + RBAC redirects
+- [x] Login page — email/password, Albanian UI, glassmorphism
+- [x] Root layout — `lang="sq"`, `class="dark"`, Inter font
+
+### Sprint 2: Admin Core ✅ COMPLETE
+- [x] Admin shell (glassmorphism sidebar + mobile drawer + dynamic header)
+- [x] Admin dashboard — 4 stat cards + occupancy bar + recent scan feed
+- [x] Authorization management page — table with optimistic approve/reject
+- [x] `last_entry_at` enrichment from `scan_logs`
+- [x] `actions/authorizations.js` — `approvePlate()`, `rejectPlate()` Server Functions
+
+### Sprint 3: Police Operations ← NEXT SESSION STARTS HERE
+- [ ] `src/app/police/layout.js` — police shell (simplified, mobile-first)
+- [ ] `src/app/police/skaner/page.js` — camera QR scan + manual plate input field
+- [ ] `src/lib/qr/token.js` — AES-256-GCM token generation + validation (60s TTL)
+- [ ] `src/actions/scanner.js` — `logScan(plateId, action, method)` Server Function
+- [ ] Entry/Exit toggle UI — shows current state, confirms action
+- [ ] Active log view — today's scans for this officer
+- [ ] QR scan: `@zxing/library` camera integration (mobile-first, full-viewport)
+- [ ] Validation error display in Albanian (`QR-ja ka skaduar`, `Targa nuk është e autorizuar`)
 
 ### Sprint 4: Citizen Portal
-- [ ] Citizen dashboard — vehicle list + dynamic QR
-- [ ] QR generation with 45-second auto-refresh + pulse animation
-- [ ] Citizen reporting page — photo upload, geolocation, category select
-- [ ] `actions/reports.js` Server Functions
+- [ ] `src/app/citizen/layout.js`
+- [ ] `src/app/citizen/dashboard/page.js` — vehicle list + QR display
+- [ ] Dynamic QR component — AES-256-GCM token, 45s `setInterval` refresh, pulse animation on refresh
+- [ ] `src/app/citizen/raporto/page.js` — category select, photo upload, geolocation
+- [ ] `src/actions/reports.js` — `submitReport()` Server Function
+- [ ] Supabase Storage upload for photos
 
 ### Sprint 5: Analytics & Polish
-- [ ] Analytics tab: avg stay time, peak hours charts
-- [ ] Citizen reports management for managers
-- [ ] PWA manifest + service worker
+- [ ] Analytics tab — avg stay time, peak hours (bar chart)
+- [ ] Citizen reports management for managers (`/admin/raportet`)
+- [ ] Supabase Realtime for live occupancy updates (replace polling)
+- [ ] PWA manifest + service worker (for citizen QR offline access)
 - [ ] Final UI polish pass
 
 ---
 
-## KNOWN DECISIONS & RATIONALE
+## ARCHITECTURE DECISIONS LOG
 
-| Decision | Rationale |
-|---|---|
-| Supabase over custom backend | Built-in RLS, Auth, Storage, and Realtime — dramatically reduces infrastructure |
-| JS (not TypeScript) | Project initialized without TS; add JSDoc types to complex functions |
-| 60-second QR expiry | Prevents WhatsApp screenshot sharing; 45s refresh gives buffer |
-| No Vercel features | Deployment target is Hostinger Node.js |
-| Albanian-only UI | City of Shkodra; target users are Albanian speakers |
-| Dark mode only | Design constraint — premium/ops aesthetic |
+See `DECISIONS.md` for all significant choices and the rationale behind them.
 
 ---
 
@@ -255,5 +133,6 @@ CREATE TRIGGER on_auth_user_created
 
 - [ ] Will police officers authenticate with email or a PIN/badge system?
 - [ ] Should the citizen QR be accessible offline (PWA cache)?
-- [ ] What is the exact zone capacity for Zdralë? (Default: 50)
-- [ ] Does the Manager role need the ability to create Citizen accounts, or is self-registration open?
+- [ ] What is the exact zone capacity for Zdralë? (Default: 50, configurable via zone_config)
+- [ ] Does the Manager role need to create Citizen accounts, or is self-registration open?
+- [ ] Should the police scanner show a success sound/haptic on valid scan?
