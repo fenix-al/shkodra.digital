@@ -79,6 +79,10 @@ export default function SkanerClient({ occupancy, capacity, zoneName, recentLogs
   const [isPending, startTransition] = useTransition()
   const [cameraActive, setCameraActive] = useState(true)
   const resultTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref-based lock so rapid zxing re-fires don't queue multiple server calls
+  const processingRef = useRef(false)
+  const actionRef = useRef<ScanAction>('ENTRY')
+  actionRef.current = action
 
   // Auto-clear result after 5 seconds
   function showResult(r: ScanResult) {
@@ -88,21 +92,26 @@ export default function SkanerClient({ occupancy, capacity, zoneName, recentLogs
   }
 
   // Camera QR detected — submit automatically
+  // useCallback deps are empty: we read action via actionRef to avoid restarting the camera reader
   const handleQRDetected = useCallback((token: string) => {
-    if (isPending) return
-    setCameraActive(false) // pause camera while processing
+    if (processingRef.current) return
+    processingRef.current = true
+    setCameraActive(false)
 
     const fd = new FormData()
     fd.set('token', token)
-    fd.set('action', action)
+    fd.set('action', actionRef.current)
 
     startTransition(async () => {
       const res = await processQRScan({}, fd)
       showResult(res as ScanResult)
       // Re-activate camera after 3s so officer can scan next
-      setTimeout(() => setCameraActive(true), 3000)
+      setTimeout(() => {
+        processingRef.current = false
+        setCameraActive(true)
+      }, 3000)
     })
-  }, [isPending, action])
+  }, []) // stable ref — never causes camera reader to restart
 
   const { videoRef, cameraError } = useCameraScanner(handleQRDetected, tab === 'camera' && cameraActive)
 
