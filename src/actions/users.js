@@ -63,8 +63,18 @@ export async function createUser(_prevState, formData) {
     return { error: `Krijimi dështoi: ${createError.message}` }
   }
 
-  // Update profile created by the handle_new_user trigger
-  await service.from('profiles').update({ full_name, role, temp_password: password }).eq('id', user.id)
+  // Update profile created by the handle_new_user trigger.
+  // Trigger always sets role='citizen' — we must override it here.
+  const { error: profileError } = await service
+    .from('profiles')
+    .update({ full_name, role, temp_password: password })
+    .eq('id', user.id)
+
+  if (profileError) {
+    // Auth user was created but profile update failed — delete the orphan
+    await service.auth.admin.deleteUser(user.id)
+    return { error: `Profili nuk u krijua: ${profileError.message}` }
+  }
 
   revalidatePath('/admin/perdoruesit')
   return { success: true, email, full_name, password }

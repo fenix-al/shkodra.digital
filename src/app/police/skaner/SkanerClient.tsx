@@ -97,7 +97,7 @@ export default function SkanerClient({ occupancy, capacity, zoneName, recentLogs
     fd.set('action', action)
 
     startTransition(async () => {
-      const res = await processQRScan(null, fd)
+      const res = await processQRScan({}, fd)
       showResult(res as ScanResult)
       // Re-activate camera after 3s so officer can scan next
       setTimeout(() => setCameraActive(true), 3000)
@@ -115,7 +115,7 @@ export default function SkanerClient({ occupancy, capacity, zoneName, recentLogs
     fd.set('action', action)
 
     startTransition(async () => {
-      const res = await processManualScan(null, fd)
+      const res = await processQRScan({}, fd)
       showResult(res as ScanResult)
       if ((res as ScanResult).success) setManualPlate('')
     })
