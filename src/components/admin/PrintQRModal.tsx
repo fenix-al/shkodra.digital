@@ -1,11 +1,14 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { X, Printer } from 'lucide-react'
 import QRCode from 'react-qr-code'
+import { getQRToken } from '@/actions/qr'
 
 interface Props {
   open: boolean
   onClose: () => void
+  plateId: string
   plateNumber: string
   ownerName: string
   validFrom: string | null
@@ -18,7 +21,27 @@ function formatDate(iso: string | null): string {
   return `${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`
 }
 
-export default function PrintQRModal({ open, onClose, plateNumber, ownerName, validFrom, validUntil }: Props) {
+export default function PrintQRModal({ open, onClose, plateId, plateNumber, ownerName, validFrom, validUntil }: Props) {
+  const [token, setToken] = useState<string | null>(null)
+  const [tokenError, setTokenError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setToken(null)
+    setTokenError(null)
+
+    async function fetchToken() {
+      const res = await getQRToken(plateId)
+      if ('error' in res && res.error) {
+        setTokenError(res.error)
+      } else if ('token' in res && res.token) {
+        setToken(res.token)
+      }
+    }
+
+    fetchToken()
+  }, [open, plateId])
+
   if (!open) return null
 
   function handlePrint() {
@@ -39,24 +62,25 @@ export default function PrintQRModal({ open, onClose, plateNumber, ownerName, va
           </button>
         </div>
 
-        {/* Card preview */}
-        <PrintCard plateNumber={plateNumber} ownerName={ownerName} validFrom={validFrom} validUntil={validUntil} />
+        <PrintCard token={token} tokenError={tokenError} plateNumber={plateNumber} ownerName={ownerName} validFrom={validFrom} validUntil={validUntil} />
 
-        <button type="button" onClick={handlePrint} className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 hover:shadow-[0_0_20px_rgba(52,211,153,0.2)] transition-all active:scale-95">
+        <button type="button" onClick={handlePrint} disabled={!token} className="flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 hover:shadow-[0_0_20px_rgba(52,211,153,0.2)] transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
           <Printer size={16} />
-          Printo Kartelën
+          {token ? 'Printo Kartelën' : 'Duke gjeneruar kodin...'}
         </button>
       </div>
 
       {/* The actual print card — visible only when printing */}
       <div className="print-card hidden print:flex">
-        <PrintCard plateNumber={plateNumber} ownerName={ownerName} validFrom={validFrom} validUntil={validUntil} forPrint />
+        <PrintCard token={token} tokenError={tokenError} plateNumber={plateNumber} ownerName={ownerName} validFrom={validFrom} validUntil={validUntil} forPrint />
       </div>
     </div>
   )
 }
 
-function PrintCard({ plateNumber, ownerName, validFrom, validUntil, forPrint = false }: {
+function PrintCard({ token, tokenError, plateNumber, ownerName, validFrom, validUntil, forPrint = false }: {
+  token: string | null
+  tokenError: string | null
   plateNumber: string
   ownerName: string
   validFrom: string | null
@@ -76,9 +100,15 @@ function PrintCard({ plateNumber, ownerName, validFrom, validUntil, forPrint = f
         <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">shkodra.digital</span>
       </div>
 
-      {/* QR code — encodes the public verification URL */}
-      <div className="p-3 rounded-2xl bg-white border-2 border-slate-100 shadow-inner">
-        <QRCode value={`${process.env.NEXT_PUBLIC_APP_URL ?? ''}/verifiko/${plateNumber}`} size={160} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+      {/* QR code — encodes HMAC token, same as citizen dashboard */}
+      <div className="p-3 rounded-2xl bg-white border-2 border-slate-100 shadow-inner flex items-center justify-center" style={{ width: 186, height: 186 }}>
+        {token ? (
+          <QRCode value={token} size={160} bgColor="#ffffff" fgColor="#0f172a" level="M" />
+        ) : tokenError ? (
+          <p className="text-xs text-red-500 text-center px-2">{tokenError}</p>
+        ) : (
+          <div className="w-8 h-8 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
+        )}
       </div>
 
       {/* Plate number — large, license plate style */}

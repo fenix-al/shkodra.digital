@@ -101,7 +101,7 @@ export default function PlatesTable({ initialPlates }: PlatesTableProps) {
     <>
       <AddPlateModal open={addOpen} onClose={() => setAddOpen(false)} />
       <ImportPlatesModal open={importOpen} onClose={() => setImportOpen(false)} />
-      {printPlate && <PrintQRModal open={!!printPlate} onClose={() => setPrintPlate(null)} plateNumber={printPlate.plate_number} ownerName={printPlate.owner_name} validFrom={printPlate.valid_from} validUntil={printPlate.valid_until} />}
+      {printPlate && <PrintQRModal open={!!printPlate} onClose={() => setPrintPlate(null)} plateId={printPlate.id} plateNumber={printPlate.plate_number} ownerName={printPlate.owner_name} validFrom={printPlate.valid_from} validUntil={printPlate.valid_until} />}
 
     <div className="bg-[#050914]/80 backdrop-blur-2xl rounded-[32px] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
 
