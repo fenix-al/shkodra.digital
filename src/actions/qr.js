@@ -30,6 +30,6 @@ export async function getQRToken(plateId) {
   const today = new Date().toISOString().split('T')[0]
   if (plate.valid_until && today > plate.valid_until) return { error: 'Autorizimi ka skaduar.' }
 
-  const token = generateQRToken({ plate_id: plate.id, plate_number: plate.plate_number })
+  const token = generateQRToken({ plate_id: plate.id })
   return { token }
 }

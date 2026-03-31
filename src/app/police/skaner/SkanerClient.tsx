@@ -115,7 +115,7 @@ export default function SkanerClient({ occupancy, capacity, zoneName, recentLogs
     fd.set('action', action)
 
     startTransition(async () => {
-      const res = await processQRScan({}, fd)
+      const res = await processManualScan({}, fd)
       showResult(res as ScanResult)
       if ((res as ScanResult).success) setManualPlate('')
     })

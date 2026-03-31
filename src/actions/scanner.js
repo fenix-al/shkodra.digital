@@ -25,8 +25,8 @@ function checkPlateEligibility(plate) {
 }
 
 /**
- * Processes a QR scan from the police scanner.
- * Validates the token, checks plate authorization, and logs the action.
+ * Processes a QR scan from the police scanner camera.
+ * scan_method = 'QR' — counted separately in analytics.
  *
  * @param {Object} _prevState
  * @param {FormData} formData
@@ -41,7 +41,7 @@ export async function processQRScan(_prevState, formData) {
   if (!token) return { error: 'Kodi QR mungon.' }
   if (!['ENTRY', 'EXIT'].includes(action)) return { error: 'Veprimi është i pavlefshëm.' }
 
-  // 1. Decrypt + validate expiry
+  // 1. Validate HMAC signature
   let payload
   try {
     payload = validateQRToken(token)
@@ -62,12 +62,13 @@ export async function processQRScan(_prevState, formData) {
   const eligibilityError = checkPlateEligibility(plate)
   if (eligibilityError) return { error: eligibilityError }
 
-  // 3. Log scan (immutable — no UPDATE/DELETE ever)
+  // 3. Log scan — immutable audit trail, plate_number denormalized for fast queries
   const { error: logError } = await service.from('scan_logs').insert({
-    plate_id: plate.id,
-    officer_id: profile.id,
+    plate_id:     plate.id,
+    plate_number: plate.plate_number,
+    officer_id:   profile.id,
     action,
-    scan_method: 'QR',
+    scan_method:  'QR',
   })
 
   if (logError) return { error: 'Regjistrimi dështoi. Provo përsëri.' }
@@ -79,7 +80,8 @@ export async function processQRScan(_prevState, formData) {
 }
 
 /**
- * Processes a manual plate lookup + entry/exit by police.
+ * Processes a manual plate number lookup + entry/exit by police.
+ * scan_method = 'MANUAL' — counted separately in analytics.
  *
  * @param {Object} _prevState
  * @param {FormData} formData
@@ -107,10 +109,11 @@ export async function processManualScan(_prevState, formData) {
   if (eligibilityError) return { error: eligibilityError }
 
   const { error: logError } = await service.from('scan_logs').insert({
-    plate_id: plate.id,
-    officer_id: profile.id,
+    plate_id:     plate.id,
+    plate_number: plate.plate_number,
+    officer_id:   profile.id,
     action,
-    scan_method: 'MANUAL',
+    scan_method:  'MANUAL',
   })
 
   if (logError) return { error: 'Regjistrimi dështoi. Provo përsëri.' }

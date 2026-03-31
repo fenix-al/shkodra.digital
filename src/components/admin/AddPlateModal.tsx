@@ -2,35 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { X, PlusCircle, Car, UserPlus, Copy, Check } from 'lucide-react'
+import { addPlate } from '@/actions/authorizations'
+import { cx } from '@/lib/cx'
 
-// Funksioni ndihmës për klasat CSS
-const cx = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ')
-
-// 1. Përcakto tipin në mënyrë eksplicite
-type AddPlateState = { 
-  error?: string; 
-  success?: string; 
-  createdUser?: { email: string; password: string; full_name: string; };
-}
-
-// Shënim: Funksioni 'addPlate' është shtuar këtu përkohësisht për kompilim.
-// Në projektin tënd të vërtetë, fshije këtë dhe rikthe: import { addPlate } from '@/actions/authorizations'
-const addPlate = async (prevState: AddPlateState, formData: FormData): Promise<AddPlateState> => {
-  return new Promise(resolve => {
-    setTimeout(() => {
-      const email = formData.get('email') as string;
-      const owner_name = formData.get('owner_name') as string;
-      
-      if (email) {
-        resolve({ 
-          success: "Targa dhe llogaria u krijuan me sukses (Pamje Paraprake)",
-          createdUser: { email, password: "SecurePass2026!", full_name: owner_name }
-        });
-      } else {
-        resolve({ success: "Targa u shtua me sukses (Pamje Paraprake)" });
-      }
-    }, 1000)
-  });
+type AddPlateState = {
+  error?: string
+  success?: string
+  createdUser?: { email: string; password: string; full_name: string }
 }
 
 interface Props {
@@ -59,13 +37,13 @@ export default function AddPlateModal({ open, onClose }: Props) {
     e.preventDefault()
     setIsPending(true)
     setState({})
-    
+
     const formData = new FormData(e.currentTarget)
     try {
-      const result = await addPlate(state, formData)
-      setState(result)
-    } catch (err) {
-      setState({ error: "Ndodhi një gabim gjatë lidhjes me serverin." })
+      const result = await addPlate({}, formData)
+      setState(result as AddPlateState)
+    } catch {
+      setState({ error: 'Ndodhi një gabim gjatë lidhjes me serverin.' })
     } finally {
       setIsPending(false)
     }

@@ -1,92 +1,62 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto'
+'use server'
 
-const ALGORITHM = 'aes-256-gcm'
-const QR_TTL_SECONDS = 60
+import { createHmac, timingSafeEqual } from 'crypto'
 
 /**
- * Returns a 32-byte key derived from the SUPABASE_QR_SECRET env var.
- * Pads or truncates to exactly 32 bytes.
+ * QR Token — Static HMAC-SHA256
+ *
+ * Format: `<plate_id>.<HMAC-SHA256(plate_id, QR_SECRET) as hex>`
+ *
+ * Design rationale:
+ * - The QR is printed on the car windscreen — it cannot have a TTL.
+ * - Security comes from two layers:
+ *   1. HMAC signature → proves the QR was issued by this system, not forged.
+ *   2. `authorized_plates.status = 'approved'` DB check → suspending a plate
+ *      instantly revokes access without reprinting the sticker.
+ * - `timingSafeEqual` prevents timing-based signature extraction attacks.
+ *
+ * @param {{ plate_id: string }} plate
+ * @returns {string} QR payload string — safe to encode as QR code
  */
-function getKey() {
+export function generateQRToken({ plate_id }) {
   const secret = process.env.SUPABASE_QR_SECRET
   if (!secret) throw new Error('SUPABASE_QR_SECRET nuk është konfiguruar')
-  // Use first 32 bytes of the secret (base64 decoded if it looks like base64)
-  const raw = Buffer.from(secret, 'base64')
-  return raw.subarray(0, 32)
+
+  const sig = createHmac('sha256', secret).update(plate_id).digest('hex')
+  return `${plate_id}.${sig}`
 }
 
 /**
- * Generates an encrypted, time-limited QR payload for a given plate.
- *
- * @param {{ plate_id: string, plate_number: string }} plate
- * @returns {string} Base64url-encoded encrypted token
- */
-export function generateQRToken(plate) {
-  const now = Math.floor(Date.now() / 1000)
-  const payload = JSON.stringify({
-    plate_id: plate.plate_id,
-    plate_number: plate.plate_number,
-    issued_at: now,
-    expires_at: now + QR_TTL_SECONDS,
-    nonce: randomBytes(4).toString('hex'),
-  })
-
-  const key = getKey()
-  const iv = randomBytes(12) // 96-bit IV for GCM
-  const cipher = createCipheriv(ALGORITHM, key, iv)
-
-  const encrypted = Buffer.concat([
-    cipher.update(payload, 'utf8'),
-    cipher.final(),
-  ])
-  const authTag = cipher.getAuthTag()
-
-  // Pack: iv (12) + authTag (16) + ciphertext — all base64url encoded
-  const packed = Buffer.concat([iv, authTag, encrypted])
-  return packed.toString('base64url')
-}
-
-/**
- * Decrypts and validates a QR token.
+ * Validates a QR token scanned by the police scanner.
  * Throws a descriptive Albanian error on any failure.
  *
- * @param {string} token — Base64url-encoded token from QR scan
- * @returns {{ plate_id: string, plate_number: string, issued_at: number, expires_at: number }}
+ * @param {string} token — raw string decoded from the QR code
+ * @returns {{ plate_id: string }}
  */
 export function validateQRToken(token) {
-  let packed
-  try {
-    packed = Buffer.from(token, 'base64url')
-  } catch {
-    throw new Error('QR-ja është e pavlefshme')
+  const secret = process.env.SUPABASE_QR_SECRET
+  if (!secret) throw new Error('SUPABASE_QR_SECRET nuk është konfiguruar')
+
+  if (!token || typeof token !== 'string') throw new Error('QR-ja është e pavlefshme.')
+
+  const dotIndex = token.lastIndexOf('.')
+  if (dotIndex === -1) throw new Error('QR-ja është e pavlefshme.')
+
+  const plate_id = token.slice(0, dotIndex)
+  const receivedSig = token.slice(dotIndex + 1)
+
+  if (!plate_id || !receivedSig) throw new Error('QR-ja është e dëmtuar.')
+
+  // Recompute expected signature
+  const expectedSig = createHmac('sha256', secret).update(plate_id).digest('hex')
+
+  // Constant-time comparison — prevents timing attacks
+  const a = Buffer.from(receivedSig, 'hex')
+  const b = Buffer.from(expectedSig, 'hex')
+
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+    throw new Error('QR-ja nuk është e vlefshme për këtë sistem.')
   }
 
-  if (packed.length < 29) throw new Error('QR-ja është e dëmtuar')
-
-  const iv = packed.subarray(0, 12)
-  const authTag = packed.subarray(12, 28)
-  const ciphertext = packed.subarray(28)
-
-  const key = getKey()
-  const decipher = createDecipheriv(ALGORITHM, key, iv)
-  decipher.setAuthTag(authTag)
-
-  let payload
-  try {
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()])
-    payload = JSON.parse(decrypted.toString('utf8'))
-  } catch {
-    throw new Error('QR-ja nuk mund të deshifrohet')
-  }
-
-  const now = Math.floor(Date.now() / 1000)
-  if (now > payload.expires_at) {
-    throw new Error('QR-ja ka skaduar. Qytetari duhet të gjenerojë një të re.')
-  }
-
-  if (!payload.plate_id || !payload.plate_number) {
-    throw new Error('QR-ja përmban të dhëna të pakompletuara')
-  }
-
-  return payload
+  return { plate_id }
 }

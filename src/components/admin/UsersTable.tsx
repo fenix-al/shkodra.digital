@@ -2,19 +2,8 @@
 
 import { useState, useTransition, useActionState } from 'react'
 import { UserPlus, Trash2, Eye, EyeOff, KeyRound, Link2, X, ShieldCheck, Car, Users, Copy, Check } from 'lucide-react'
-
-// Funksioni ndihmës për klasat CSS
-const cx = (...classes: (string | undefined | null | false)[]) => classes.filter(Boolean).join(' ')
-
-// --- Shënim: Këto funksione janë shtuar këtu përkohësisht për kompilim. ---
-// Në projektin tënd të vërtetë, fshiji këto dhe rikthe: 
-// import { createUser, deleteUser, changePassword, generateResetLink } from '@/actions/users'
-const createUser = async (prevState: any, formData: FormData) => {
-  return new Promise<any>(resolve => setTimeout(() => resolve({ success: "Llogaria u krijua", password: "NewPassword123!", full_name: formData.get('full_name'), email: formData.get('email') }), 1000))
-}
-const deleteUser = async (userId: string) => { return new Promise<any>(resolve => setTimeout(() => resolve({ success: true }), 500)) }
-const changePassword = async (prevState: any, formData: FormData) => { return new Promise<any>(resolve => setTimeout(() => resolve({ success: "Fjalëkalimi u ndryshua" }), 500)) }
-const generateResetLink = async (prevState: any, formData: FormData) => { return new Promise<any>(resolve => setTimeout(() => resolve({ success: true, link: "https://shkodra.digital/reset?token=xyz123" }), 500)) }
+import { createUser, deleteUser, changePassword, generateResetLink } from '@/actions/users'
+import { cx } from '@/lib/cx'
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -59,32 +48,17 @@ function formatDate(iso: string) {
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
 
-function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: (u: UserRow) => void }) {
-  // Përdorim useState për t'i shpëtuar problemeve të useActionState në preview
-  const [state, setState] = useState<any>(null)
-  const [isPending, setIsPending] = useState(false)
+function AddUserModal({ onClose }: { onClose: () => void; onCreated: (u: UserRow) => void }) {
+  const [state, formAction, isPending] = useActionState(
+    createUser as (_s: unknown, fd: FormData) => Promise<Record<string, unknown>>,
+    null
+  )
   const [copied, setCopied] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setIsPending(true)
-    const formData = new FormData(e.currentTarget)
-    try {
-      const result = await createUser(state, formData)
-      setState(result)
-      // Nuk shtojmë përdoruesin në listë automatikisht këtu për të evituar ID false
-    } catch (err) {
-      setState({ error: "Ndodhi një gabim" })
-    } finally {
-      setIsPending(false)
-    }
-  }
-
-  // Show result card after success
+  // Success screen — show generated password
   if (state?.success) {
     function copyPassword() {
-      // ZGJIDHJA: Nxjerrim vlerën me ! meqë jemi brenda if (state?.success)
-      navigator.clipboard.writeText(state!.password)
+      navigator.clipboard.writeText(state.password as string)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
@@ -98,20 +72,20 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             </div>
             <div>
               <h3 className="text-sm font-bold text-emerald-400">Llogaria u krijua!</h3>
-              <p className="text-xs text-slate-400 mt-0.5">{state.full_name} — {state.email}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{state.full_name as string} — {state.email as string}</p>
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Fjalëkalimi i gjeneruar</p>
             <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-black/40 border border-white/10">
-              <span className="flex-1 font-mono text-lg font-bold text-slate-100 tracking-widest">{state.password}</span>
-              <button type="button" onClick={copyPassword} className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 transition-colors active:scale-95 outline-none focus:ring-2 focus:ring-emerald-500/50">
+              <span className="flex-1 font-mono text-lg font-bold text-slate-100 tracking-widest">{state.password as string}</span>
+              <button type="button" onClick={copyPassword} className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 transition-colors active:scale-95">
                 {copied ? <Check size={15} className="text-emerald-400" /> : <Copy size={15} />}
               </button>
             </div>
             <p className="text-[10px] text-slate-600">Ruaj këtë fjalëkalim para se të mbyllësh.</p>
           </div>
-          <button type="button" onClick={onClose} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 outline-none hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
+          <button type="button" onClick={onClose} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
             U kuptua
           </button>
         </div>
@@ -133,20 +107,20 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
               <p className="text-[10px] uppercase tracking-widest text-slate-500 mt-0.5">Auto-Fjalëkalim</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50"><X size={17} /></button>
+          <button type="button" onClick={onClose} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95"><X size={17} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form action={formAction} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Emri i plotë *</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Emri i plotë *</label>
             <input name="full_name" type="text" required placeholder="Emri Mbiemri" className="bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Email *</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Email *</label>
             <input name="email" type="email" required placeholder="email@example.com" className="bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Roli</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Roli</label>
             <div className="relative">
               <select name="role" className="w-full bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all appearance-none cursor-pointer">
                 {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value} className="bg-[#050914]">{r.label}</option>)}
@@ -157,11 +131,11 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             </div>
           </div>
           {state?.error && (
-            <div className="px-4 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-medium text-rose-400 animate-in fade-in zoom-in-95 duration-200">{state.error}</div>
+            <div className="px-4 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-medium text-rose-400">{state.error as string}</div>
           )}
           <div className="flex gap-3 pt-2 border-t border-white/5 mt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50">Anulo</button>
-            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 outline-none hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] focus:ring-2 focus:ring-emerald-500/50">
+            <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95">Anulo</button>
+            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
               {isPending ? 'Duke krijuar...' : 'Krijo'}
             </button>
           </div>
