@@ -1,10 +1,28 @@
 'use server'
 
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { createServiceSupabaseClient } from '@/lib/supabase/service'
 import { requireRole } from '@/lib/auth/roles'
 import { ROLES } from '@/lib/auth/roles'
 import { validateQRToken } from '@/lib/qr/token'
 import { revalidatePath } from 'next/cache'
+
+/** @returns {string} today as YYYY-MM-DD */
+function today() {
+  return new Date().toISOString().split('T')[0]
+}
+
+/**
+ * @param {{ status: string, valid_from: string|null, valid_until: string|null }} plate
+ * @returns {string|null} Albanian error message, or null if OK
+ */
+function checkPlateEligibility(plate) {
+  if (plate.status !== 'approved') return 'Targa nuk është e autorizuar.'
+  const t = today()
+  if (plate.valid_from && t < plate.valid_from) return 'Autorizimi nuk ka filluar ende.'
+  if (plate.valid_until && t > plate.valid_until) return 'Autorizimi ka skaduar.'
+  return null
+}
 
 /**
  * Processes a QR scan from the police scanner.
@@ -18,11 +36,12 @@ export async function processQRScan(_prevState, formData) {
   const { profile } = await requireRole(supabase, [ROLES.POLICE, ROLES.SUPER_ADMIN])
 
   const token = formData.get('token')?.toString()
-  const action = formData.get('action')?.toString() // 'ENTRY' | 'EXIT'
+  const action = formData.get('action')?.toString()
 
   if (!token) return { error: 'Kodi QR mungon.' }
   if (!['ENTRY', 'EXIT'].includes(action)) return { error: 'Veprimi është i pavlefshëm.' }
 
+  // 1. Decrypt + validate expiry
   let payload
   try {
     payload = validateQRToken(token)
@@ -30,19 +49,22 @@ export async function processQRScan(_prevState, formData) {
     return { error: err.message }
   }
 
-  // Verify plate is still authorized in DB
-  const { data: plate, error: plateError } = await supabase
+  // 2. Look up plate (service client bypasses RLS)
+  const service = createServiceSupabaseClient()
+  const { data: plate, error: plateError } = await service
     .from('authorized_plates')
-    .select('id, plate_number, status, owner_name')
+    .select('id, plate_number, owner_name, status, valid_from, valid_until')
     .eq('id', payload.plate_id)
     .single()
 
   if (plateError || !plate) return { error: 'Targa nuk u gjet në sistem.' }
-  if (plate.status !== 'approved') return { error: `Targa është me status: ${plate.status}.` }
 
-  const { error: logError } = await supabase.from('scan_logs').insert({
+  const eligibilityError = checkPlateEligibility(plate)
+  if (eligibilityError) return { error: eligibilityError }
+
+  // 3. Log scan (immutable — no UPDATE/DELETE ever)
+  const { error: logError } = await service.from('scan_logs').insert({
     plate_id: plate.id,
-    plate_number: plate.plate_number,
     officer_id: profile.id,
     action,
     scan_method: 'QR',
@@ -53,12 +75,7 @@ export async function processQRScan(_prevState, formData) {
   revalidatePath('/police/skaner')
   revalidatePath('/admin/dashboard')
 
-  return {
-    success: true,
-    action,
-    plate_number: plate.plate_number,
-    owner_name: plate.owner_name,
-  }
+  return { success: true, action, plate_number: plate.plate_number, owner_name: plate.owner_name }
 }
 
 /**
@@ -77,18 +94,20 @@ export async function processManualScan(_prevState, formData) {
   if (!plate_number) return { error: 'Numri i targës mungon.' }
   if (!['ENTRY', 'EXIT'].includes(action)) return { error: 'Veprimi është i pavlefshëm.' }
 
-  const { data: plate, error: plateError } = await supabase
+  const service = createServiceSupabaseClient()
+  const { data: plate, error: plateError } = await service
     .from('authorized_plates')
-    .select('id, plate_number, status, owner_name')
+    .select('id, plate_number, owner_name, status, valid_from, valid_until')
     .eq('plate_number', plate_number)
     .single()
 
-  if (plateError || !plate) return { error: 'Targa nuk u gjet ose nuk është e autorizuar.' }
-  if (plate.status !== 'approved') return { error: `Targa është me status: ${plate.status}.` }
+  if (plateError || !plate) return { error: 'Targa nuk u gjet ose nuk është e regjistruar.' }
 
-  const { error: logError } = await supabase.from('scan_logs').insert({
+  const eligibilityError = checkPlateEligibility(plate)
+  if (eligibilityError) return { error: eligibilityError }
+
+  const { error: logError } = await service.from('scan_logs').insert({
     plate_id: plate.id,
-    plate_number: plate.plate_number,
     officer_id: profile.id,
     action,
     scan_method: 'MANUAL',
@@ -99,10 +118,5 @@ export async function processManualScan(_prevState, formData) {
   revalidatePath('/police/skaner')
   revalidatePath('/admin/dashboard')
 
-  return {
-    success: true,
-    action,
-    plate_number: plate.plate_number,
-    owner_name: plate.owner_name,
-  }
+  return { success: true, action, plate_number: plate.plate_number, owner_name: plate.owner_name }
 }

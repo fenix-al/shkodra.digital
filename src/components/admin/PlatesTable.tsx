@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useTransition, useOptimistic } from 'react'
-import { Search, CheckCircle2, XCircle, MoreVertical, Car, Clock, RotateCcw } from 'lucide-react'
+import { Search, CheckCircle2, XCircle, Car, Clock, RotateCcw, PlusCircle, Upload, Printer } from 'lucide-react'
 import { approvePlate, rejectPlate } from '@/actions/authorizations'
 import { cx } from '@/lib/cx'
 import type { AuthorizedPlate, PlateStatus } from '@/types/admin'
+import AddPlateModal from './AddPlateModal'
+import ImportPlatesModal from './ImportPlatesModal'
+import PrintQRModal from './PrintQRModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,12 +36,21 @@ const FILTERS: { value: FilterValue; label: string }[] = [
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('sq-AL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const d = new Date(iso)
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const yyyy = d.getUTCFullYear()
+  return `${dd}.${mm}.${yyyy}`
 }
 
 function formatTime(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('sq-AL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const d = new Date(iso)
+  const dd = String(d.getUTCDate()).padStart(2, '0')
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const hh = String(d.getUTCHours()).padStart(2, '0')
+  const min = String(d.getUTCMinutes()).padStart(2, '0')
+  return `${dd}.${mm} ${hh}:${min}`
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -47,6 +59,9 @@ export default function PlatesTable({ initialPlates }: PlatesTableProps) {
   const [filter, setFilter] = useState<FilterValue>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [isPending, startTransition] = useTransition()
+  const [addOpen, setAddOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [printPlate, setPrintPlate] = useState<AuthorizedPlate | null>(null)
 
   const [optimisticPlates, updateOptimisticPlates] = useOptimistic(
     initialPlates,
@@ -83,19 +98,38 @@ export default function PlatesTable({ initialPlates }: PlatesTableProps) {
   const hasActiveFilters = filter !== 'all' || searchTerm !== ''
 
   return (
+    <>
+      <AddPlateModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <ImportPlatesModal open={importOpen} onClose={() => setImportOpen(false)} />
+      {printPlate && <PrintQRModal open={!!printPlate} onClose={() => setPrintPlate(null)} plateNumber={printPlate.plate_number} ownerName={printPlate.owner_name} validFrom={printPlate.valid_from} validUntil={printPlate.valid_until} />}
+
     <div className="bg-[#050914]/80 backdrop-blur-2xl rounded-[32px] border border-white/5 shadow-2xl overflow-hidden flex flex-col">
 
       {/* ── Controls ── */}
-      <div className="p-5 lg:p-6 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 border-b border-white/5 bg-white/[0.02]">
+      <div className="p-5 lg:p-6 flex flex-col gap-4 border-b border-white/5 bg-white/[0.02]">
+        <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
 
-        {/* Search */}
-        <div className="relative w-full md:w-96 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors" aria-hidden />
-          <input type="search" placeholder="Kërko targë ose emër pronari..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Kërko autorizime" className="w-full bg-black/40 border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
+          {/* Search */}
+          <div className="relative w-full md:w-96 group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-slate-500 group-focus-within:text-emerald-400 transition-colors" aria-hidden />
+            <input type="search" placeholder="Kërko targë ose emër pronari..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} aria-label="Kërko autorizime" className="w-full bg-black/40 border border-white/5 rounded-2xl py-3 pl-12 pr-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button type="button" onClick={() => setImportOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-white/10 bg-white/[0.03] text-xs font-semibold text-slate-300 hover:bg-white/[0.06] hover:text-slate-100 transition-all active:scale-95">
+              <Upload size={14} />
+              Importo CSV
+            </button>
+            <button type="button" onClick={() => setAddOpen(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold text-slate-900 bg-gradient-to-r from-blue-400 to-emerald-400 hover:shadow-[0_0_20px_rgba(52,211,153,0.15)] transition-all active:scale-95">
+              <PlusCircle size={14} />
+              Shto Targë
+            </button>
+          </div>
         </div>
 
         {/* Filter tabs */}
-        <div role="group" aria-label="Filtro sipas statusit" className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/5 overflow-x-auto shrink-0">
+        <div role="group" aria-label="Filtro sipas statusit" className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/5 overflow-x-auto self-start">
           {FILTERS.map(({ value, label }) => (
             <FilterTab key={value} label={label} active={filter === value} onClick={() => setFilter(value)} />
           ))}
@@ -164,11 +198,11 @@ export default function PlatesTable({ initialPlates }: PlatesTableProps) {
                           <XCircle size={17} />
                         </button>
                       </>
-                    ) : (
-                      <button type="button" aria-label="Më shumë opsione" className="p-2 rounded-xl text-slate-600 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95">
-                        <MoreVertical size={17} />
+                    ) : plate.status === 'approved' ? (
+                      <button type="button" onClick={() => setPrintPlate(plate)} aria-label={`Printo QR për ${plate.plate_number}`} className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all duration-300 active:scale-95">
+                        <Printer size={17} />
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </td>
 
@@ -208,6 +242,7 @@ export default function PlatesTable({ initialPlates }: PlatesTableProps) {
         </div>
       </div>
     </div>
+    </>
   )
 }
 

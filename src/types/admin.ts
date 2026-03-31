@@ -10,6 +10,8 @@ export interface AuthorizedPlate {
   vehicle_type: VehicleType
   status: PlateStatus
   created_at: string
+  valid_from: string | null
+  valid_until: string | null
   /** Injected server-side from scan_logs — latest ENTRY timestamp for this plate */
   last_entry_at: string | null
 }

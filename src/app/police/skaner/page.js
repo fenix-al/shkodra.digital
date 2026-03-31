@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import SkanerClient from './SkanerClient'
 
 export const metadata = {
   title: 'Skaneri | Shkodra.digital',
@@ -7,30 +8,46 @@ export const metadata = {
 export default async function SkanerPage() {
   const supabase = await createServerSupabaseClient()
 
-  // Today's occupancy snapshot
   const today = new Date().toISOString().split('T')[0]
-  const { count: entries } = await supabase
-    .from('scan_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('action', 'ENTRY')
-    .gte('scanned_at', `${today}T00:00:00Z`)
 
-  const { count: exits } = await supabase
-    .from('scan_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('action', 'EXIT')
-    .gte('scanned_at', `${today}T00:00:00Z`)
+  const [
+    { count: entries },
+    { count: exits },
+    { data: recentLogs },
+    { data: zoneConfig },
+  ] = await Promise.all([
+    supabase
+      .from('scan_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('action', 'ENTRY')
+      .gte('scanned_at', `${today}T00:00:00Z`),
+    supabase
+      .from('scan_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('action', 'EXIT')
+      .gte('scanned_at', `${today}T00:00:00Z`),
+    supabase
+      .from('scan_logs')
+      .select('plate_id, action, scan_method, scanned_at, authorized_plates(plate_number, owner_name)')
+      .gte('scanned_at', `${today}T00:00:00Z`)
+      .order('scanned_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('zone_config')
+      .select('capacity, zone_name')
+      .single(),
+  ])
 
   const occupancy = (entries ?? 0) - (exits ?? 0)
+  const capacity  = zoneConfig?.capacity ?? 50
+  const zoneName  = zoneConfig?.zone_name ?? 'Zona Zdrales'
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-semibold text-zinc-100">Skaneri i Zonës</h1>
-      <p className="mt-1 text-sm text-zinc-400">
-        Brenda zonës tani:{' '}
-        <span className="font-semibold text-emerald-400">{occupancy}</span>
-      </p>
-      {/* QRScanner + ManualSearch components — Sprint 3 */}
-    </div>
+    <SkanerClient
+      occupancy={occupancy}
+      capacity={capacity}
+      zoneName={zoneName}
+      recentLogs={recentLogs ?? []}
+    />
   )
 }

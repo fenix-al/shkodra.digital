@@ -1,4 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { requireRole } from '@/lib/auth/roles'
+import { ROLES } from '@/lib/auth/roles'
+import CitizenDashboardClient from './CitizenDashboardClient'
 
 export const metadata = {
   title: 'Paneli Im | Shkodra.digital',
@@ -6,24 +9,18 @@ export const metadata = {
 
 export default async function CitizenDashboardPage() {
   const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const { profile } = await requireRole(supabase, [ROLES.CITIZEN])
 
   const { data: plates } = await supabase
     .from('authorized_plates')
-    .select('id, plate_number, status, vehicle_type')
-    .eq('owner_id', user.id)
+    .select('id, plate_number, vehicle_type, status, valid_from, valid_until, created_at')
+    .eq('owner_id', profile.id)
     .order('created_at', { ascending: false })
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-semibold text-zinc-100">Paneli Im</h1>
-      <p className="mt-1 text-sm text-zinc-400">
-        Targat tuaja dhe kodi QR i aksesit
-      </p>
-      {/* QR display + plate list — Sprint 4 */}
-      <pre className="mt-4 text-xs text-zinc-500">
-        {JSON.stringify(plates, null, 2)}
-      </pre>
-    </div>
+    <CitizenDashboardClient
+      plates={plates ?? []}
+      ownerName={profile.full_name ?? 'Qytetar'}
+    />
   )
 }

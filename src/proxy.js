@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { defaultPathForRole } from '@/lib/auth/roles'
 
 /** Routes that require no authentication */
-const PUBLIC_ROUTES = ['/login', '/regjistrohu']
+const PUBLIC_ROUTES = ['/login', '/regjistrohu', '/verifiko']
 
 /** Maps URL prefixes to the roles allowed to access them */
 const PROTECTED_ROUTES = [

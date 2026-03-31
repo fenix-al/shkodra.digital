@@ -11,7 +11,7 @@ export default async function AutorizimetPage() {
   const [{ data: plates }, { data: entries }] = await Promise.all([
     supabase
       .from('authorized_plates')
-      .select('id, plate_number, owner_name, vehicle_type, status, created_at')
+      .select('id, plate_number, owner_name, vehicle_type, status, created_at, valid_from, valid_until')
       .order('created_at', { ascending: false })
       .limit(100),
     supabase
