@@ -6,51 +6,27 @@ import { ROLES } from '@/lib/auth/roles'
 import { generateQRToken } from '@/lib/qr/token'
 
 /**
- * Generates a fresh AES-256-GCM QR token for one of the citizen's approved plates.
- * Called every 45s by the DynamicQR client component.
+ * Generates an HMAC QR token for a plate.
+ * Works for citizens (own plates only) and managers/admins (any plate).
  *
  * @param {string} plateId
  * @returns {{ token: string } | { error: string }}
  */
 export async function getQRToken(plateId) {
   const supabase = await createServerSupabaseClient()
-  const { profile } = await requireRole(supabase, [ROLES.CITIZEN])
+  const { profile } = await requireRole(supabase, [ROLES.CITIZEN, ROLES.MANAGER, ROLES.SUPER_ADMIN])
 
-  // Verify the plate belongs to this citizen and is approved
-  const { data: plate, error } = await supabase
-    .from('authorized_plates')
-    .select('id, plate_number, status, valid_until')
-    .eq('id', plateId)
-    .eq('owner_id', profile.id)
-    .single()
-
-  if (error || !plate) return { error: 'Targa nuk u gjet.' }
-  if (plate.status !== 'approved') return { error: 'Targa nuk është e autorizuar.' }
-
-  const today = new Date().toISOString().split('T')[0]
-  if (plate.valid_until && today > plate.valid_until) return { error: 'Autorizimi ka skaduar.' }
-
-  const token = generateQRToken({ plate_id: plate.id })
-  return { token }
-}
-
-/**
- * Generates a QR token for admin/manager print modal.
- * Uses service client — no owner_id check needed.
- *
- * @param {string} plateId
- * @returns {{ token: string } | { error: string }}
- */
-export async function getQRTokenAdmin(plateId) {
-  const supabase = await createServerSupabaseClient()
-  await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
-
-  // Use the session client — manager RLS policy allows reading all plates
-  const { data: plate, error } = await supabase
+  let query = supabase
     .from('authorized_plates')
     .select('id')
     .eq('id', plateId)
-    .single()
+
+  // Citizens can only get tokens for their own plates
+  if (profile.role === ROLES.CITIZEN) {
+    query = query.eq('owner_id', profile.id)
+  }
+
+  const { data: plate, error } = await query.single()
 
   if (error || !plate) return { error: 'Targa nuk u gjet.' }
 

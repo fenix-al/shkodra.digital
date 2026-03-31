@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Printer } from 'lucide-react'
 import QRCode from 'react-qr-code'
-import { getQRTokenAdmin } from '@/actions/qr'
+import { getQRToken } from '@/actions/qr'
 
 interface Props {
   open: boolean
@@ -31,7 +31,7 @@ export default function PrintQRModal({ open, onClose, plateId, plateNumber, owne
     setTokenError(null)
 
     async function fetchToken() {
-      const res = await getQRTokenAdmin(plateId)
+      const res = await getQRToken(plateId)
       if ('error' in res && res.error) {
         setTokenError(res.error)
       } else if ('token' in res && res.token) {
