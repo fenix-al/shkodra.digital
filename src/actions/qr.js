@@ -45,12 +45,10 @@ export async function getQRTokenAdmin(plateId) {
   const supabase = await createServerSupabaseClient()
   await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
 
-  const { createServiceSupabaseClient } = await import('@/lib/supabase/service')
-  const service = createServiceSupabaseClient()
-
-  const { data: plate, error } = await service
+  // Use the session client — manager RLS policy allows reading all plates
+  const { data: plate, error } = await supabase
     .from('authorized_plates')
-    .select('id, status, valid_until')
+    .select('id')
     .eq('id', plateId)
     .single()
 
