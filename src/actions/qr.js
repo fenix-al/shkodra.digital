@@ -33,3 +33,29 @@ export async function getQRToken(plateId) {
   const token = generateQRToken({ plate_id: plate.id })
   return { token }
 }
+
+/**
+ * Generates a QR token for admin/manager print modal.
+ * Uses service client — no owner_id check needed.
+ *
+ * @param {string} plateId
+ * @returns {{ token: string } | { error: string }}
+ */
+export async function getQRTokenAdmin(plateId) {
+  const supabase = await createServerSupabaseClient()
+  await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
+
+  const { createServiceSupabaseClient } = await import('@/lib/supabase/service')
+  const service = createServiceSupabaseClient()
+
+  const { data: plate, error } = await service
+    .from('authorized_plates')
+    .select('id, status, valid_until')
+    .eq('id', plateId)
+    .single()
+
+  if (error || !plate) return { error: 'Targa nuk u gjet.' }
+
+  const token = generateQRToken({ plate_id: plate.id })
+  return { token }
+}
