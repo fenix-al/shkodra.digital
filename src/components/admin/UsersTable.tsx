@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useTransition, useActionState } from 'react'
+import { useState, useTransition } from 'react'
 import { UserPlus, Trash2, Eye, EyeOff, KeyRound, Link2, X, ShieldCheck, Car, Users, Copy, Check } from 'lucide-react'
 import { createUser, deleteUser, changePassword, generateResetLink } from '@/actions/users'
 import { cx } from '@/lib/cx'
-
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,17 +47,31 @@ function formatDate(iso: string) {
 
 // ─── Add User Modal ───────────────────────────────────────────────────────────
 
-function AddUserModal({ onClose }: { onClose: () => void; onCreated: (u: UserRow) => void }) {
-  const [state, formAction, isPending] = useActionState(
-    createUser as (_s: unknown, fd: FormData) => Promise<Record<string, unknown>>,
-    null
-  )
+function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: (u: UserRow) => void }) {
+  const [state, setState] = useState<any>(null)
+  const [isPending, setIsPending] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsPending(true)
+    const formData = new FormData(e.currentTarget)
+    try {
+      const result = await createUser(state, formData)
+      setState(result)
+      // Opsionale: mund të thërrasim onCreated(result.newUser) nëse serveri kthen përdoruesin e ri
+    } catch (err) {
+      setState({ error: "Ndodhi një gabim gjatë krijimit." })
+    } finally {
+      setIsPending(false)
+    }
+  }
 
   // Success screen — show generated password
   if (state?.success) {
     function copyPassword() {
-      navigator.clipboard.writeText(state.password as string)
+      // Zgjidhja e sigurt e null/undefined për TypeScript:
+      navigator.clipboard.writeText(state!.password as string)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
@@ -79,13 +92,13 @@ function AddUserModal({ onClose }: { onClose: () => void; onCreated: (u: UserRow
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Fjalëkalimi i gjeneruar</p>
             <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-black/40 border border-white/10">
               <span className="flex-1 font-mono text-lg font-bold text-slate-100 tracking-widest">{state.password as string}</span>
-              <button type="button" onClick={copyPassword} className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 transition-colors active:scale-95">
+              <button type="button" onClick={copyPassword} className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-400 transition-colors active:scale-95 outline-none focus:ring-2 focus:ring-emerald-500/50">
                 {copied ? <Check size={15} className="text-emerald-400" /> : <Copy size={15} />}
               </button>
             </div>
             <p className="text-[10px] text-slate-600">Ruaj këtë fjalëkalim para se të mbyllësh.</p>
           </div>
-          <button type="button" onClick={onClose} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
+          <button type="button" onClick={onClose} className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-emerald-500/50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
             U kuptua
           </button>
         </div>
@@ -107,23 +120,23 @@ function AddUserModal({ onClose }: { onClose: () => void; onCreated: (u: UserRow
               <p className="text-[10px] uppercase tracking-widest text-slate-500 mt-0.5">Auto-Fjalëkalim</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95"><X size={17} /></button>
+          <button type="button" onClick={onClose} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50"><X size={17} /></button>
         </div>
 
-        <form action={formAction} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Emri i plotë *</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Emri i plotë *</label>
             <input name="full_name" type="text" required placeholder="Emri Mbiemri" className="bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Email *</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Email *</label>
             <input name="email" type="email" required placeholder="email@example.com" className="bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Roli</label>
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Roli</label>
             <div className="relative">
               <select name="role" className="w-full bg-black/40 border border-white/5 rounded-2xl py-3.5 px-4 text-sm text-slate-100 focus:outline-none focus:bg-black/60 focus:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/5 transition-all appearance-none cursor-pointer">
-                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value} className="bg-[#050914]">{r.label}</option>)}
+                {ROLE_OPTIONS.map((r) => <option key={r.value} value={r.value} className="bg-[#050914] text-slate-200">{r.label}</option>)}
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-500">
                 <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
@@ -131,11 +144,11 @@ function AddUserModal({ onClose }: { onClose: () => void; onCreated: (u: UserRow
             </div>
           </div>
           {state?.error && (
-            <div className="px-4 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-medium text-rose-400">{state.error as string}</div>
+            <div className="px-4 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-medium text-rose-400 animate-in fade-in zoom-in-95 duration-200">{state.error as string}</div>
           )}
           <div className="flex gap-3 pt-2 border-t border-white/5 mt-2">
-            <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95">Anulo</button>
-            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)]">
+            <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50">Anulo</button>
+            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] outline-none focus:ring-2 focus:ring-emerald-500/50">
               {isPending ? 'Duke krijuar...' : 'Krijo'}
             </button>
           </div>
@@ -159,7 +172,7 @@ function ChangePasswordModal({ user, onClose }: { user: UserRow; onClose: () => 
       const result = await changePassword(state, formData)
       setState(result)
     } catch (err) {
-      setState({ error: "Ndodhi një gabim" })
+      setState({ error: "Ndodhi një gabim gjatë ndryshimit." })
     } finally {
       setIsPending(false)
     }
@@ -186,7 +199,7 @@ function ChangePasswordModal({ user, onClose }: { user: UserRow; onClose: () => 
           {state?.success && <div className="px-4 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs font-medium text-emerald-400 animate-in fade-in zoom-in-95 duration-200">{state.success}</div>}
           <div className="flex gap-3 pt-2 border-t border-white/5 mt-2">
             <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50">Anulo</button>
-            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 outline-none hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] focus:ring-2 focus:ring-emerald-500/50">
+            <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] outline-none focus:ring-2 focus:ring-emerald-500/50">
               {isPending ? 'Duke ndryshuar...' : 'Ndrysho'}
             </button>
           </div>
@@ -211,7 +224,7 @@ function ResetLinkModal({ user, onClose }: { user: UserRow; onClose: () => void 
       const result = await generateResetLink(state, formData)
       setState(result)
     } catch (err) {
-      setState({ error: "Ndodhi një gabim" })
+      setState({ error: "Ndodhi një gabim gjatë gjenerimit." })
     } finally {
       setIsPending(false)
     }
@@ -219,7 +232,7 @@ function ResetLinkModal({ user, onClose }: { user: UserRow; onClose: () => void 
 
   function copyLink() {
     if (state?.link) { 
-      navigator.clipboard.writeText(state.link); 
+      navigator.clipboard.writeText(state.link as string); 
       setCopied(true); 
       setTimeout(() => setCopied(false), 2000) 
     }
@@ -246,7 +259,7 @@ function ResetLinkModal({ user, onClose }: { user: UserRow; onClose: () => void 
               </button>
             </div>
             <p className="text-[10px] text-slate-600">Ky link skadon pas 1 ore.</p>
-            <button type="button" onClick={onClose} className="w-full mt-2 py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 outline-none hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] focus:ring-2 focus:ring-emerald-500/50">Mbyll</button>
+            <button type="button" onClick={onClose} className="w-full mt-2 py-3 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] outline-none focus:ring-2 focus:ring-emerald-500/50">Mbyll</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -255,7 +268,7 @@ function ResetLinkModal({ user, onClose }: { user: UserRow; onClose: () => void 
             {state?.error && <div className="px-4 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-xs font-medium text-rose-400 animate-in fade-in zoom-in-95 duration-200">{state.error}</div>}
             <div className="flex gap-3 pt-2 border-t border-white/5 mt-2">
               <button type="button" onClick={onClose} className="flex-1 py-3.5 rounded-2xl border border-white/5 text-sm font-semibold text-slate-400 hover:bg-white/10 transition-all active:scale-95 outline-none focus:ring-2 focus:ring-slate-500/50">Anulo</button>
-              <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100 outline-none hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] focus:ring-2 focus:ring-emerald-500/50">
+              <button type="submit" disabled={isPending} className="flex-1 py-3.5 rounded-2xl bg-gradient-to-r from-blue-400 to-emerald-400 text-sm font-bold text-slate-900 transition-all active:scale-95 disabled:opacity-50 hover:shadow-[0_0_20px_rgba(52,211,153,0.3)] outline-none focus:ring-2 focus:ring-emerald-500/50">
                 {isPending ? 'Duke gjeneruar...' : 'Gjenero Link'}
               </button>
             </div>

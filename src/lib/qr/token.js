@@ -1,5 +1,3 @@
-'use server'
-
 import { createHmac, timingSafeEqual } from 'crypto'
 
 /**
