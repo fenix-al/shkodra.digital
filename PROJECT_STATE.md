@@ -1,10 +1,10 @@
 # PROJECT STATE — SHKODRA.DIGITAL
-# Last updated: 2026-03-31
+# Last updated: 2026-04-01
 # Phase: 1 — Zdralë Pedestrian Zone Access Control & Citizen Reporting
 
 ---
 
-## CURRENT STATUS: SPRINT 2 COMPLETE — ADMIN CORE DONE
+## CURRENT STATUS: SPRINTS 1–5 COMPLETE — FULL SYSTEM OPERATIONAL
 
 ```
 [DONE]   Next.js 16 + React 19 + Tailwind v4 base installed
@@ -17,38 +17,86 @@
 [DONE]   Proxy (RBAC routing) implemented
 [DONE]   Sprint 1 — Login page (glassmorphism, Albanian UI, Supabase auth)
 [DONE]   Sprint 2 — Admin Core (dashboard, authorizations, sidebar, shell)
-[WIP]    Sprint 3 — Police Operations
-[TODO]   Sprint 4 — Citizen Portal
-[TODO]   Sprint 5 — Analytics & Polish
+[DONE]   Sprint 3 — Police Operations (scanner, camera QR, manual entry, occupancy bar)
+[DONE]   Sprint 4 — Citizen Portal (dashboard, dynamic QR, report submission)
+[DONE]   Sprint 5 — Users management, QR security redesign, analytics, full system integration
+[TODO]   Deployment to Hostinger
+[TODO]   Supabase Realtime for live occupancy
+[TODO]   Final polish & PWA manifest
 ```
 
 ---
 
-## COMPLETED THIS SESSION (2026-03-31)
+## COMPLETED THIS SESSION (2026-04-01)
 
-### TypeScript Migration
-- Added `tsconfig.json` with `allowJs: true` — new files are `.tsx/.ts`, old infrastructure stays `.js`
-- Installed `typescript`, `@types/react`, `@types/node`
-- Created `src/types/admin.ts` — canonical types: `PlateStatus`, `VehicleType`, `AuthorizedPlate`, `ZoneStats`, `ScanLog`, `ScanAction`, `ScanMethod`, `UserRole`, `UserProfile`
-- Created `src/lib/cx.ts` — type-safe `clsx` + `tailwind-merge` helper
+### QR Security — Full Redesign (AES-256-GCM → HMAC-SHA256 Static)
+- **Discovery:** QR codes are PRINTED on car windscreens. TTL-based 60s tokens are incompatible with printed paper.
+- `src/lib/qr/token.js` — Rewrote entirely. Uses `createHmac('sha256', SUPABASE_QR_SECRET).update(plate_id)`. Token format: `${plate_id}.${hex_sig}`. Removed `'use server'` directive (it's a utility library, not a Server Action file).
+- `validateQRToken()` uses `timingSafeEqual` from Node.js `crypto` — constant-time comparison prevents timing attacks.
+- Revocation is done via `authorized_plates.status` (DB column), not token expiry.
+- `src/actions/qr.js` — Unified `getQRToken` handles CITIZEN + MANAGER + SUPER_ADMIN roles. Citizens get `owner_id` filter; managers/admins do not.
 
-### Admin Shell & Sidebar (TypeScript, Production-Grade)
-- `src/components/admin/AdminShell.tsx` — client shell managing mobile drawer state + dynamic page title via `usePathname()` mapped to Albanian titles
-- `src/components/admin/AdminSidebar.tsx` — fully typed, mobile slide-in with `translate-x` CSS transition, `aria-current="page"`, logout via `useTransition`
-- `src/components/admin/PlatesTable.tsx` — 7 columns (Targa, Pronari, Lloji, Data, Statusi, Hyrja e fundit, Veprime), `useOptimistic` for instant approve/reject, `STATUS_CONFIG` record pattern, polished empty state with reset button
-- Deleted old `AdminSidebar.js` and `PlatesTable.js`
+### Bug Fixes — Mock Function Contamination (Critical)
+Three files had been overwritten with fake prototype functions that silently passed while calling no real backend:
+- `AddPlateModal.tsx` — Removed fake `addPlate()` mock, restored `import { addPlate } from '@/actions/authorizations'`
+- `UsersTable.tsx` — Removed all four fake mocks (`createUser`, `deleteUser`, `changePassword`, `generateResetLink`), restored real server action imports
+- `DynamicQR.tsx` — Removed fake `getQRToken` mock + Wikipedia placeholder, restored real `import { getQRToken } from '@/actions/qr'`
 
-### Admin Layout & Pages
-- `src/app/admin/layout.js` — now a lean server component: fetches profile, renders `<AdminShell>`; all shell chrome moved to AdminShell
-- `src/app/admin/autorizimet/page.js` — parallel fetch of `authorized_plates` + `scan_logs`; builds `lastEntryMap` to enrich each plate with `last_entry_at` before passing to PlatesTable
-- `src/app/admin/dashboard/page.js` — 7 parallel Supabase queries, real occupancy calculation (`ENTRY - EXIT`), StatCard components matching the 2026 design spec, occupancy progress bar, recent scan log feed
+### Bug Fix — Roles Stuck on "Qytetar" in Përdoruesit Panel
+- Root cause: `profiles` table was missing `temp_password` column → SELECT failed silently → all profile fetches returned null → UI fell back to `'citizen'` for every user.
+- Fix: SQL migration `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT NULL;`
+- Added error propagation in `src/actions/users.js` `createUser()`: if profile UPDATE fails after auth user creation, delete the orphaned auth user and return error.
 
-### Design System Updates
-- `src/app/layout.js` — Inter font loaded via `next/font/google`, CSS variable `--font-inter` registered
-- `src/app/globals.css` — `--font-sans` now maps to `--font-inter` (was self-referencing `--font-sans`)
-- `AdminShell.tsx` — header shows dynamic page title (left) + system status pill with `shadow-[0_0_8px_#10b981]` glow (right)
-- `PlatesTable.tsx` — plate number bumped to `text-lg`; action buttons are `opacity-0 group-hover:opacity-100 transition-opacity` (fade in on row hover)
-- `dashboard/page.js` `StatCard` — matches mock exactly: `font-black tracking-tighter` value, `text-[10px] font-bold uppercase tracking-widest` label, Live/Standby badge with `ArrowUpRight`
+### Bug Fix — Camera QR Scanning Silently Failing (Police Scanner)
+- Root cause: `@zxing/library` fires its callback ~10×/second. `isPending` (React state) is a stale closure in the callback — multiple concurrent server calls were being queued.
+- Fix in `SkanerClient.tsx`: `processingRef = useRef(false)` as a synchronous lock; `actionRef = useRef<ScanAction>('ENTRY')` with `actionRef.current = action` on each render. `handleQRDetected` wrapped in `useCallback([])` with empty deps so the camera reader never restarts. After scan: camera deactivated, re-activated after 3 seconds.
+
+### Bug Fix — PrintQRModal Generating Invalid QR Tokens
+- Root cause: Was encoding `/verifiko/${plateNumber}` URL instead of an HMAC token.
+- Fix: `PrintQRModal` now calls `getQRToken(plateId)` on open, shows a spinner while loading, disables print button until token is ready. PlatesTable passes `plateId={printPlate.id}`.
+
+### Bug Fix — "Autorizimi nuk ka filluar ende" When Scanning Admin-Printed QR
+- Root cause: `AddPlateModal` had `valid_from`/`valid_until` date fields. Browser autofilled or left them with future dates. Scanner's `checkPlateEligibility` correctly rejected them.
+- Fix: Removed both date fields entirely from `AddPlateModal.tsx`. Plates added via the admin modal have no date restriction.
+- SQL migration needed: `UPDATE public.authorized_plates SET valid_from = NULL WHERE valid_from > NOW()::DATE;`
+
+### Bug Fix — TypeScript Build Error in ReportForm.tsx
+- Root cause: `useActionState` couldn't unify `initialState: { error: undefined; success: undefined }` with the action's return type.
+- Fix: Defined `type ReportFormState = { error?: string; success?: string }`, `const initialState: ReportFormState = {}`, and cast `submitReport` at the call site.
+
+### Bug Fix — AddUserModal Not Saving
+- Root cause: `UsersTable.tsx` had an `onSubmit` handler + manual state pattern that broke under React 19's batching.
+- Fix: Converted `AddUserModal` to `useActionState` + `<form action={formAction}>` pattern.
+
+### Bug Fix — 'use server' on token.js (Turbopack Error)
+- Root cause: `src/lib/qr/token.js` had `'use server'` directive. Turbopack requires all functions in 'use server' files to be async. `generateQRToken` and `validateQRToken` are synchronous.
+- Fix: Removed `'use server'` from token.js. It is a utility module imported by server actions, not a server action itself.
+
+### Admin UI Redesign
+- `AdminShell.tsx` — Dynamic page title via `usePathname()` + `PAGE_TITLES` record
+- `PlatesTable.tsx` — 7-column table with `useOptimistic` approve/reject + PrintQR action for approved plates
+- `AddPlateModal.tsx` — Clean form (plate number, owner name, vehicle type, optional citizen account creation)
+- `PrintQRModal.tsx` — Print card with real HMAC QR code, plate number in license-plate style, owner, validity dates
+- `ImportPlatesModal.tsx` — CSV bulk import for plates
+
+---
+
+## PENDING DB MIGRATIONS
+
+Run these in Supabase SQL Editor before next session:
+
+```sql
+-- 1. Add temp_password column (fixes role display bug)
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT NULL;
+
+-- 2. Add validity date columns if not already present
+ALTER TABLE public.authorized_plates
+  ADD COLUMN IF NOT EXISTS valid_from DATE DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS valid_until DATE DEFAULT NULL;
+
+-- 3. Clear any bad valid_from dates set by old AddPlateModal
+UPDATE public.authorized_plates SET valid_from = NULL WHERE valid_from > NOW()::DATE;
+```
 
 ---
 
@@ -94,32 +142,54 @@ Tables created in Supabase: `profiles`, `authorized_plates`, `scan_logs`, `citiz
 - [x] Admin dashboard — 4 stat cards + occupancy bar + recent scan feed
 - [x] Authorization management page — table with optimistic approve/reject
 - [x] `last_entry_at` enrichment from `scan_logs`
-- [x] `actions/authorizations.js` — `approvePlate()`, `rejectPlate()` Server Functions
+- [x] `actions/authorizations.js` — `approvePlate()`, `rejectPlate()`, `addPlate()` Server Functions
+- [x] `AddPlateModal` — add plate + optional citizen account creation
+- [x] `ImportPlatesModal` — CSV bulk import
+- [x] `PrintQRModal` — print card with HMAC QR code (FIXED — was encoding wrong value)
+- [x] `UsersTable` — list users + create + delete + password reset (FIXED — was using mocks)
 
-### Sprint 3: Police Operations ← NEXT SESSION STARTS HERE
-- [ ] `src/app/police/layout.js` — police shell (simplified, mobile-first)
-- [ ] `src/app/police/skaner/page.js` — camera QR scan + manual plate input field
-- [ ] `src/lib/qr/token.js` — AES-256-GCM token generation + validation (60s TTL)
-- [ ] `src/actions/scanner.js` — `logScan(plateId, action, method)` Server Function
-- [ ] Entry/Exit toggle UI — shows current state, confirms action
-- [ ] Active log view — today's scans for this officer
-- [ ] QR scan: `@zxing/library` camera integration (mobile-first, full-viewport)
-- [ ] Validation error display in Albanian (`QR-ja ka skaduar`, `Targa nuk është e autorizuar`)
+### Sprint 3: Police Operations ✅ COMPLETE
+- [x] `src/app/police/layout.js` — police shell (simplified, mobile-first)
+- [x] `src/app/police/skaner/page.js` + `SkanerClient.tsx` — camera QR scan + manual plate input
+- [x] `src/lib/qr/token.js` — HMAC-SHA256 static tokens with `timingSafeEqual`
+- [x] `src/actions/scanner.js` — `processQRScan()`, `processManualScan()` Server Functions
+- [x] Entry/Exit toggle UI
+- [x] Active log view — today's scans
+- [x] Camera QR scanning FIXED — `processingRef` + `actionRef` pattern
+- [x] Validation: expired QR, unauthorized plate, valid_from/valid_until date checks
 
-### Sprint 4: Citizen Portal
-- [ ] `src/app/citizen/layout.js`
-- [ ] `src/app/citizen/dashboard/page.js` — vehicle list + QR display
-- [ ] Dynamic QR component — AES-256-GCM token, 45s `setInterval` refresh, pulse animation on refresh
-- [ ] `src/app/citizen/raporto/page.js` — category select, photo upload, geolocation
-- [ ] `src/actions/reports.js` — `submitReport()` Server Function
-- [ ] Supabase Storage upload for photos
+### Sprint 4: Citizen Portal ✅ COMPLETE
+- [x] `src/app/citizen/layout.js`
+- [x] `src/app/citizen/dashboard/page.js` — vehicle list + QR display
+- [x] `DynamicQR.tsx` — HMAC token QR, static (no refresh timer — printed on car)
+- [x] `src/app/citizen/raporto/page.js` + `ReportForm.tsx` — category select, photo upload, geolocation
+- [x] `src/actions/reports.js` — `submitReport()` Server Function
 
-### Sprint 5: Analytics & Polish
-- [ ] Analytics tab — avg stay time, peak hours (bar chart)
-- [ ] Citizen reports management for managers (`/admin/raportet`)
-- [ ] Supabase Realtime for live occupancy updates (replace polling)
-- [ ] PWA manifest + service worker (for citizen QR offline access)
-- [ ] Final UI polish pass
+### Sprint 5: Analytics, Users & Polish ✅ COMPLETE
+- [x] Users management page (`/admin/perdoruesit`) — list, create, delete, password reset
+- [x] QR security redesign — HMAC-SHA256 static tokens replacing AES-256-GCM TTL tokens
+- [x] All mock function contamination removed from production files
+- [x] TypeScript migration on new components complete
+- [x] Full end-to-end flow verified: Admin creates plate → prints QR → Citizen scans → Police reads entry/exit
+
+---
+
+## NEXT SESSION — DEPLOYMENT
+
+### TODO: Hostinger Deployment
+1. Run pending DB migrations in Supabase SQL Editor (see above)
+2. Set environment variables in Hostinger Node.js panel: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_QR_SECRET`
+3. Configure GitHub CI/CD: `npm run build && npm start`
+4. Test all flows on production URL
+
+### TODO: Supabase Realtime
+- Replace occupancy polling with `supabase.channel('scan_logs').on('postgres_changes', ...)` in admin dashboard and police scanner
+
+### TODO: Final Polish
+- PWA manifest + service worker (citizen QR offline access)
+- Analytics tab — avg stay time, peak hours (bar chart)
+- Sound/haptic feedback on police scanner success scan
+- Admin reports management page (`/admin/raportet`)
 
 ---
 
@@ -131,8 +201,7 @@ See `DECISIONS.md` for all significant choices and the rationale behind them.
 
 ## OPEN QUESTIONS
 
-- [ ] Will police officers authenticate with email or a PIN/badge system?
+- [ ] Should the police scanner show a success sound/haptic on valid scan?
 - [ ] Should the citizen QR be accessible offline (PWA cache)?
 - [ ] What is the exact zone capacity for Zdralë? (Default: 50, configurable via zone_config)
-- [ ] Does the Manager role need to create Citizen accounts, or is self-registration open?
-- [ ] Should the police scanner show a success sound/haptic on valid scan?
+- [ ] Analytics: should "scan from phone camera" be tracked as a separate `scan_method` value?

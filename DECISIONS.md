@@ -3,6 +3,51 @@
 
 ---
 
+## [2026-04-01] Session 4 — QR Security Redesign, Bug Fixes, Full System Integration
+
+### D-009 — QR tokens are HMAC-SHA256 static (not AES-256-GCM with TTL)
+**Decision:** Replaced the AES-256-GCM + 60-second TTL QR system with HMAC-SHA256 static tokens. Token format: `${plate_id}.${hmac_hex}`. No expiry. Revocation via `authorized_plates.status` column.
+**Why:** QR codes are physically printed on car windscreens. A 60-second TTL is incompatible with printed paper — the code would be immediately invalid. Static HMAC tokens are cryptographically tied to `SUPABASE_QR_SECRET`; they cannot be forged without the secret. Revocation is achieved by setting `status = 'rejected'` or `'suspended'` in the DB, which the scanner checks on every scan.
+**Security note:** `timingSafeEqual` from Node.js `crypto` is used for signature comparison, preventing timing attacks. The secret never leaves the server.
+
+---
+
+### D-010 — Single `getQRToken` function for all roles (no separate admin variant)
+**Decision:** `src/actions/qr.js` exports one `getQRToken(plateId)` function that handles CITIZEN + MANAGER + SUPER_ADMIN. Citizens get an `owner_id` filter; managers and super_admins do not.
+**Why:** Two separate functions (`getQRToken` / `getQRTokenAdmin`) introduced complexity and a bug: the admin variant used dynamic `import()` which silently failed in Next.js Server Actions. One function with role-based filtering is simpler, safer, and produces the same token format.
+
+---
+
+### D-011 — `processingRef` + `actionRef` pattern for camera QR scanner
+**Decision:** In `SkanerClient.tsx`, a `processingRef = useRef(false)` synchronous lock prevents duplicate server calls when `@zxing/library` fires its callback multiple times per second. A separate `actionRef = useRef<ScanAction>('ENTRY')` (updated on every render) lets `handleQRDetected` read the current action without being in its `useCallback` deps, so the camera reader never restarts.
+**Why:** `@zxing/library`'s `decodeFromConstraints` callback fires ~10×/second. React's `isPending` state (from `useTransition`) is a stale closure in this callback — checking it would not prevent multiple concurrent server calls. A `useRef` is synchronous (not batched) and solves this correctly. Empty `useCallback` deps + ref-based action reading keeps the camera reader instance stable across re-renders.
+
+---
+
+### D-012 — `valid_from`/`valid_until` removed from AddPlateModal
+**Decision:** The admin "Add Plate" modal no longer includes `valid_from` / `valid_until` date pickers. Plates added via this modal have `NULL` dates (no restriction).
+**Why:** The scanner's `checkPlateEligibility` correctly rejected plates where `valid_from > today`. The modal's date fields were being auto-filled or accidentally left with future dates, causing every newly-added plate to fail with "Autorizimi nuk ka filluar ende." Since the common case is "plate is valid immediately and indefinitely," `NULL` dates (= no restriction) is the correct default. Date restrictions can be added directly in Supabase if needed.
+
+---
+
+### D-013 — `'use server'` must NOT be placed on utility library files
+**Decision:** `src/lib/qr/token.js` does NOT have a `'use server'` directive. It is imported by server actions, not itself a server action file.
+**Why:** Turbopack enforces that every function exported from a `'use server'` file must be async. `generateQRToken` and `validateQRToken` are synchronous. Adding `'use server'` caused a build error. The correct mental model: `'use server'` marks a file as an entry point for Server Actions (callable from client); utility modules used only on the server don't need this directive.
+
+---
+
+### D-014 — Prototype mock functions are a critical contamination risk
+**Decision:** Never leave mock/prototype function definitions inside production component files. Always verify that imports resolve to real server actions before shipping.
+**Why:** Three separate files (`AddPlateModal.tsx`, `UsersTable.tsx`, `DynamicQR.tsx`) had been overwritten with fake functions that silently succeeded while calling no backend. This caused hard-to-diagnose bugs: the UI showed success states, but nothing was persisted. The root cause was prototype/demo code left in production files. All such mocks have been removed and replaced with real imports.
+
+---
+
+### D-015 — `profiles.temp_password` column is required for role display
+**Decision:** The `profiles` table must have a `temp_password TEXT DEFAULT NULL` column. If missing, any SELECT on `profiles` that includes this column fails silently, returning null for all rows — which causes the UI to fall back to `'citizen'` for all users.
+**Why:** `createUser` server action inserts `temp_password` when creating a user with a generated password. Without the column the profile UPDATE fails silently, leaving the role stuck at the trigger default (`'citizen'`). The fix is the SQL migration: `ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS temp_password TEXT DEFAULT NULL`.
+
+---
+
 ## [2026-03-31] Session 3 — TypeScript Migration & Admin UI Completion
 
 ### D-001 — TypeScript added as opt-in, not a full migration

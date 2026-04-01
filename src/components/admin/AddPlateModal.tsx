@@ -145,17 +145,6 @@ export default function AddPlateModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-1">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Vlefshme Nga</label>
-              <input name="valid_from" type="date" className="bg-black/40 border border-white/5 rounded-2xl py-3 px-4 text-sm text-slate-100 focus:outline-none focus:border-emerald-500/50 focus:bg-black/60 focus:ring-4 focus:ring-emerald-500/5 transition-all [color-scheme:dark]" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500 ml-1">Vlefshme Deri</label>
-              <input name="valid_until" type="date" className="bg-black/40 border border-white/5 rounded-2xl py-3 px-4 text-sm text-slate-100 focus:outline-none focus:border-emerald-500/50 focus:bg-black/60 focus:ring-4 focus:ring-emerald-500/5 transition-all [color-scheme:dark]" />
-            </div>
-          </div>
-
           {/* Optional: create citizen account */}
           <div className="pt-2">
             <button type="button" onClick={() => setCreateAccount((v) => !v)} className={cx('w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all duration-300 outline-none focus:ring-2 focus:ring-blue-500/30', createAccount ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'bg-white/[0.02] border-white/5 text-slate-400 hover:bg-white/[0.05] hover:text-slate-200')}>
