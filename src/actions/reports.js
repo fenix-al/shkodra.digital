@@ -27,13 +27,18 @@ export async function submitReport(_prevState, formData) {
 
   let photo_url = null
   if (photo && photo.size > 0) {
-    const ext = photo.name.split('.').pop()
+    const ext = (photo.name.split('.').pop() || 'jpg').toLowerCase()
     const fileName = `${profile.id}/${Date.now()}.${ext}`
+
+    // Convert File → Buffer for reliable Node.js server-side upload
+    const arrayBuffer = await photo.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('report-photos')
-      .upload(fileName, photo, { contentType: photo.type })
+      .upload(fileName, buffer, { contentType: photo.type || 'image/jpeg' })
 
-    if (uploadError) return { error: 'Ngarkimi i fotos dështoi.' }
+    if (uploadError) return { error: `Ngarkimi i fotos dështoi: ${uploadError.message}` }
 
     const { data: { publicUrl } } = supabase.storage
       .from('report-photos')
