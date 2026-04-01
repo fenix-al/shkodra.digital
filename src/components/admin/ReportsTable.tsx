@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { AlertTriangle, CheckCircle2, XCircle, Clock, Eye, MapPin, Image as ImageIcon, ChevronDown, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, XCircle, Clock, Eye, MapPin, Image as ImageIcon, ChevronDown, X, ExternalLink } from 'lucide-react'
 import { updateReportStatus } from '@/actions/reports'
 import { cx } from '@/lib/cx'
 
@@ -127,9 +127,15 @@ export default function ReportsTable({ initialReports }: Props) {
                 </div>
               )}
               {(detailReport.latitude && detailReport.longitude) && (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/5">
-                  <MapPin size={14} className="text-emerald-400 shrink-0" />
-                  <span className="text-xs font-mono text-slate-400">{detailReport.latitude.toFixed(5)}, {detailReport.longitude.toFixed(5)}</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/5">
+                    <MapPin size={14} className="text-emerald-400 shrink-0" />
+                    <span className="text-xs font-mono text-slate-400">{detailReport.latitude.toFixed(5)}, {detailReport.longitude.toFixed(5)}</span>
+                  </div>
+                  <a href={`https://www.google.com/maps?q=${detailReport.latitude},${detailReport.longitude}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs font-bold text-blue-400 hover:bg-blue-500/20 transition-all active:scale-95 shrink-0">
+                    <ExternalLink size={12} />
+                    Hartë
+                  </a>
                 </div>
               )}
               {detailReport.photo_url && (
@@ -228,7 +234,11 @@ export default function ReportsTable({ initialReports }: Props) {
                     {/* Meta icons */}
                     <div className="flex items-center gap-3 text-[10px] text-slate-600">
                       {report.photo_url && <span className="flex items-center gap-1"><ImageIcon size={10} />Foto</span>}
-                      {report.latitude && <span className="flex items-center gap-1"><MapPin size={10} />GPS</span>}
+                      {(report.latitude && report.longitude) && (
+                        <a href={`https://www.google.com/maps?q=${report.latitude},${report.longitude}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors">
+                          <MapPin size={10} />GPS
+                        </a>
+                      )}
                       {report.reporter_name && <span className="truncate max-w-[100px]">{report.reporter_name}</span>}
                     </div>
 
