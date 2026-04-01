@@ -10,8 +10,9 @@ export const metadata = {
 export default async function AdminDashboardPage() {
   const supabase = await createServerSupabaseClient()
 
-  const today = new Date().toISOString().split('T')[0]
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
 
   const [
     { count: entries },
@@ -34,12 +35,9 @@ export default async function AdminDashboardPage() {
   ])
 
   const occupancy = Math.max(0, (entries ?? 0) - (exits ?? 0))
-  const capacity  = zoneConfig?.capacity ?? 50
-  const zoneName  = zoneConfig?.zone_name ?? 'Zona Zdralës'
+  const capacity = zoneConfig?.capacity ?? 50
+  const zoneName = zoneConfig?.zone_name ?? 'Zona Zdralës'
 
-  // ── Analytics calculations ──────────────────────────────────────────────────
-
-  // Peak hours: group by hour of day
   const hourlyMap = new Map()
   for (let h = 0; h < 24; h++) hourlyMap.set(h, { hour: h, entries: 0, exits: 0 })
 
@@ -49,12 +47,17 @@ export default async function AdminDashboardPage() {
   for (const log of weekLogs ?? []) {
     const h = new Date(log.scanned_at).getHours()
     const bucket = hourlyMap.get(h)
-    if (log.action === 'ENTRY') { bucket.entries++; totalEntries7d++ }
-    if (log.action === 'EXIT')  { bucket.exits++;   totalExits7d++ }
+    if (log.action === 'ENTRY') {
+      bucket.entries++
+      totalEntries7d++
+    }
+    if (log.action === 'EXIT') {
+      bucket.exits++
+      totalExits7d++
+    }
   }
   const hourlyData = Array.from(hourlyMap.values())
 
-  // Avg stay: pair ENTRY+EXIT per plate, take first EXIT after each ENTRY
   let avgStayMinutes = null
   const entryTimes = new Map()
   const stayDurations = []
@@ -64,37 +67,32 @@ export default async function AdminDashboardPage() {
       entryTimes.set(log.plate_id, new Date(log.scanned_at).getTime())
     } else if (log.action === 'EXIT' && entryTimes.has(log.plate_id)) {
       const diff = (new Date(log.scanned_at).getTime() - entryTimes.get(log.plate_id)) / 60000
-      if (diff > 0 && diff < 480) stayDurations.push(diff) // ignore > 8h (anomalies)
+      if (diff > 0 && diff < 480) stayDurations.push(diff)
       entryTimes.delete(log.plate_id)
     }
   }
+
   if (stayDurations.length > 0) {
     avgStayMinutes = stayDurations.reduce((a, b) => a + b, 0) / stayDurations.length
   }
 
   return (
     <div className="flex flex-col gap-6">
-
-      {/* ── Stat cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        <StatCard label="Targa Aktive"       value={activeCount ?? 0}  icon={<ShieldCheck size={20} className="text-emerald-400" />} trend="Të miratuara"   positive />
-        <StatCard label="Kërkesa në Pritje"  value={pendingCount ?? 0} icon={<Clock size={20} className="text-amber-400" />}        trend="Presin miratim" />
+        <StatCard label="Targa Aktive" value={activeCount ?? 0} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend="Të miratuara" positive />
+        <StatCard label="Kërkesa në Pritje" value={pendingCount ?? 0} icon={<Clock size={20} className="text-amber-400" />} trend="Presin miratim" />
         <StatCard label="Kapaciteti i Zonës" value={`${occupancy}/${capacity}`} icon={<Car size={20} className="text-blue-400" />} trend={`${Math.round((occupancy / capacity) * 100)}% e zënë`} />
-        <StatCard label="Skanime Sot"        value={scansToday ?? 0}   icon={<Activity size={20} className="text-purple-400" />}    trend="Hyrje + Dalje" positive />
+        <StatCard label="Skanime Sot" value={scansToday ?? 0} icon={<Activity size={20} className="text-purple-400" />} trend="Hyrje + Dalje" positive />
       </div>
 
-      {/* ── Live occupancy (Realtime) ── */}
-      <OccupancyRealtime
-        initialOccupancy={occupancy}
-        capacity={capacity}
-        zoneName={zoneName}
-      />
+      <OccupancyRealtime initialOccupancy={occupancy} capacity={capacity} zoneName={zoneName} />
 
-      {/* ── Recent scans ── */}
       <div className="bg-[#050914]/80 backdrop-blur-2xl rounded-[28px] border border-white/5 overflow-hidden">
         <div className="p-6 border-b border-white/5 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-widest">Skanime të Fundit</h2>
-          <a href="/admin/autorizimet" className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">Shiko të gjitha <ChevronRight size={12} /></a>
+          <a href="/admin/autorizimet" className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">
+            Shiko të gjitha <ChevronRight size={12} />
+          </a>
         </div>
         <div className="divide-y divide-white/5">
           {(recentLogs?.length ?? 0) === 0 && (
@@ -112,15 +110,16 @@ export default async function AdminDashboardPage() {
                 </div>
               </div>
               <div className="text-right">
-                <p className={`text-xs font-bold uppercase tracking-widest ${log.action === 'ENTRY' ? 'text-emerald-400' : 'text-rose-400'}`}>{log.action === 'ENTRY' ? 'Hyrje' : 'Dalje'}</p>
-                <p className="text-xs text-slate-500">{String(new Date(log.scanned_at).getUTCHours()).padStart(2,'0')}:{String(new Date(log.scanned_at).getUTCMinutes()).padStart(2,'0')}</p>
+                <p className={`text-xs font-bold uppercase tracking-widest ${log.action === 'ENTRY' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {log.action === 'ENTRY' ? 'Hyrje' : 'Dalje'}
+                </p>
+                <p className="text-xs text-slate-500">{String(new Date(log.scanned_at).getUTCHours()).padStart(2, '0')}:{String(new Date(log.scanned_at).getUTCMinutes()).padStart(2, '0')}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── Analytics ── */}
       <AnalyticsPanel
         hourlyData={hourlyData}
         avgStayMinutes={avgStayMinutes}

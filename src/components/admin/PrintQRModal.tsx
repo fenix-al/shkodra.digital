@@ -18,31 +18,46 @@ interface Props {
 function formatDate(iso: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
-  return `${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`
+  return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`
 }
 
 export default function PrintQRModal({ open, onClose, plateId, plateNumber, ownerName, validFrom, validUntil }: Props) {
-  const [token, setToken] = useState<string | null>(null)
-  const [tokenError, setTokenError] = useState<string | null>(null)
+  const [tokenState, setTokenState] = useState<{
+    plateId: string | null
+    token: string | null
+    error: string | null
+  }>({
+    plateId: null,
+    token: null,
+    error: null,
+  })
 
   useEffect(() => {
     if (!open) return
-    setToken(null)
-    setTokenError(null)
+    let cancelled = false
 
     async function fetchToken() {
       const res = await getQRToken(plateId)
+      if (cancelled) return
+
       if ('error' in res && res.error) {
-        setTokenError(res.error)
+        setTokenState({ plateId, token: null, error: res.error })
       } else if ('token' in res && res.token) {
-        setToken(res.token)
+        setTokenState({ plateId, token: res.token, error: null })
       }
     }
 
     fetchToken()
+
+    return () => {
+      cancelled = true
+    }
   }, [open, plateId])
 
   if (!open) return null
+
+  const token = tokenState.plateId === plateId ? tokenState.token : null
+  const tokenError = tokenState.plateId === plateId ? tokenState.error : null
 
   function handlePrint() {
     window.print()
@@ -50,10 +65,8 @@ export default function PrintQRModal({ open, onClose, plateId, plateNumber, owne
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop — hidden when printing */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm print:hidden" onClick={onClose} aria-hidden />
 
-      {/* Modal chrome — hidden when printing */}
       <div className="relative z-10 flex flex-col gap-4 items-center print:hidden">
         <div className="flex items-center justify-between w-full max-w-sm">
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Pamje paraprake e printimit</p>
@@ -70,7 +83,6 @@ export default function PrintQRModal({ open, onClose, plateId, plateNumber, owne
         </button>
       </div>
 
-      {/* The actual print card — visible only when printing */}
       <div className="print-card hidden print:flex">
         <PrintCard token={token} tokenError={tokenError} plateNumber={plateNumber} ownerName={ownerName} validFrom={validFrom} validUntil={validUntil} forPrint />
       </div>
@@ -88,11 +100,7 @@ function PrintCard({ token, tokenError, plateNumber, ownerName, validFrom, valid
   forPrint?: boolean
 }) {
   return (
-    <div className={forPrint
-      ? 'bg-white rounded-2xl p-8 flex flex-col items-center gap-5 shadow-none w-[340px]'
-      : 'bg-white rounded-3xl p-8 flex flex-col items-center gap-5 shadow-2xl w-[340px]'
-    }>
-      {/* Brand */}
+    <div className={forPrint ? 'bg-white rounded-2xl p-8 flex flex-col items-center gap-5 shadow-none w-[340px]' : 'bg-white rounded-3xl p-8 flex flex-col items-center gap-5 shadow-2xl w-[340px]'}>
       <div className="flex items-center gap-2 self-start">
         <div className="w-6 h-6 rounded-lg bg-gradient-to-b from-blue-500 to-emerald-500 flex items-center justify-center">
           <span className="text-white text-[8px] font-black">S</span>
@@ -100,7 +108,6 @@ function PrintCard({ token, tokenError, plateNumber, ownerName, validFrom, valid
         <span className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">shkodra.digital</span>
       </div>
 
-      {/* QR code — encodes HMAC token, same as citizen dashboard */}
       <div className="p-3 rounded-2xl bg-white border-2 border-slate-100 shadow-inner flex items-center justify-center" style={{ width: 186, height: 186 }}>
         {token ? (
           <QRCode value={token} size={160} bgColor="#ffffff" fgColor="#0f172a" level="M" />
@@ -111,18 +118,15 @@ function PrintCard({ token, tokenError, plateNumber, ownerName, validFrom, valid
         )}
       </div>
 
-      {/* Plate number — large, license plate style */}
       <div className="w-full px-6 py-4 rounded-xl border-4 border-slate-800 bg-slate-900 flex items-center justify-center">
         <span className="font-mono font-black text-3xl tracking-[0.25em] text-white">{plateNumber}</span>
       </div>
 
-      {/* Owner */}
       <div className="text-center">
         <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Pronari</p>
         <p className="text-base font-bold text-slate-800 mt-0.5">{ownerName}</p>
       </div>
 
-      {/* Validity */}
       {(validFrom || validUntil) && (
         <div className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-200">
           <div className="text-center">
@@ -137,8 +141,7 @@ function PrintCard({ token, tokenError, plateNumber, ownerName, validFrom, valid
         </div>
       )}
 
-      {/* Footer */}
-      <p className="text-[9px] text-slate-300 text-center tracking-wide">Autorizim hyrjeje — Zona Pedestale Zdralës</p>
+      <p className="text-[9px] text-slate-300 text-center tracking-wide">Autorizim hyrjeje - Zona Pedonale Zdralës</p>
     </div>
   )
 }

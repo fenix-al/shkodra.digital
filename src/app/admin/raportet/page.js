@@ -1,6 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { requireRole } from '@/lib/auth/roles'
-import { ROLES } from '@/lib/auth/roles'
+import { requireRole, ROLES } from '@/lib/auth/roles'
 import { redirect } from 'next/navigation'
 import ReportsTable from '@/components/admin/ReportsTable'
 
@@ -23,7 +22,6 @@ export default async function RaportetPage() {
     .order('created_at', { ascending: false })
     .limit(100)
 
-  // Fetch reporter names separately to avoid FK join dependency
   let reporterMap = {}
   if (reports && reports.length > 0) {
     const reporterIds = [...new Set(reports.map((r) => r.reporter_id).filter(Boolean))]
@@ -31,6 +29,7 @@ export default async function RaportetPage() {
       .from('profiles')
       .select('id, full_name')
       .in('id', reporterIds)
+
     reporterMap = Object.fromEntries((profileRows ?? []).map((p) => [p.id, p.full_name]))
   }
 
