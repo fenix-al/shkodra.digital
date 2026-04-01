@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { requireRole, ROLES } from '@/lib/auth/roles'
 import { redirect } from 'next/navigation'
 import ReportsTable from '@/components/admin/ReportsTable'
+import ReportsGeoMap from '@/components/admin/ReportsGeoMap'
 
 export const metadata = {
   title: 'Raportet | Shkodra.digital',
@@ -50,6 +51,7 @@ export default async function RaportetPage() {
           DB Error: {reportsError.message} (code: {reportsError.code})
         </div>
       )}
+      <ReportsGeoMap reports={enriched} />
       <ReportsTable initialReports={enriched} />
     </div>
   )
