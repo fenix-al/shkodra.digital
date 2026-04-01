@@ -30,6 +30,7 @@ export interface GeoReport {
 interface Props {
   reports: GeoReport[]
   selectedId: string | null
+  focusNonce: number | string
   onSelect: (id: string) => void
 }
 
@@ -107,7 +108,7 @@ function createClusterCustomIcon(cluster: ClusterLike) {
   })
 }
 
-function MapViewport({ reports, selectedId }: { reports: GeoReport[]; selectedId: string | null }) {
+function MapViewport({ reports, selectedId, focusNonce }: { reports: GeoReport[]; selectedId: string | null; focusNonce: number | string }) {
   const map = useMap()
 
   useEffect(() => {
@@ -123,12 +124,12 @@ function MapViewport({ reports, selectedId }: { reports: GeoReport[]; selectedId
 
     const bounds = L.latLngBounds(reports.map((report) => [report.latitude, report.longitude]))
     map.fitBounds(bounds, { padding: [32, 32], maxZoom: 16 })
-  }, [map, reports, selectedId])
+  }, [focusNonce, map, reports, selectedId])
 
   return null
 }
 
-export default function ReportsGeoMapCanvas({ reports, selectedId, onSelect }: Props) {
+export default function ReportsGeoMapCanvas({ reports, selectedId, focusNonce, onSelect }: Props) {
   const fallbackCenter: [number, number] = reports[0]
     ? [reports[0].latitude, reports[0].longitude]
     : [42.0683, 19.5126]
@@ -147,7 +148,7 @@ export default function ReportsGeoMapCanvas({ reports, selectedId, onSelect }: P
       />
       <ZoomControl position="topright" />
       <ScaleControl position="bottomleft" />
-      <MapViewport reports={reports} selectedId={selectedId} />
+      <MapViewport reports={reports} selectedId={selectedId} focusNonce={focusNonce} />
 
       <MarkerClusterGroup
         chunkedLoading
@@ -177,6 +178,16 @@ export default function ReportsGeoMapCanvas({ reports, selectedId, onSelect }: P
             >
               <Popup>
                 <div className="min-w-[220px] space-y-2">
+                  {report.photo_url && (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={report.photo_url}
+                        alt="Foto e raportit"
+                        className="h-28 w-full rounded-xl object-cover"
+                      />
+                    </>
+                  )}
                   <div className="flex items-center justify-between gap-3">
                     <strong>{CATEGORY_LABELS[report.category] ?? report.category}</strong>
                     <span>{priority.label}</span>

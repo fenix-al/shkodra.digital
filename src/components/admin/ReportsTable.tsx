@@ -45,6 +45,7 @@ interface Report {
 
 interface Props {
   initialReports: Report[]
+  onFocusReport?: (reportId: string) => void
 }
 
 const STATUS_CONFIG: Record<ReportStatus, { label: string; className: string; dot: string }> = {
@@ -233,7 +234,7 @@ function StatusBadge({ status }: { status: ReportStatus }) {
   )
 }
 
-export default function ReportsTable({ initialReports }: Props) {
+export default function ReportsTable({ initialReports, onFocusReport }: Props) {
   const [reports, setReports] = useState(initialReports)
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
@@ -845,7 +846,14 @@ export default function ReportsTable({ initialReports }: Props) {
                     </div>
 
                     <div className="flex gap-2 pt-2 border-t border-white/5">
-                      <button type="button" onClick={() => setDetailReport(report)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-all active:scale-95">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onFocusReport?.(report.id)
+                          setDetailReport(report)
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-all active:scale-95"
+                      >
                         <Eye size={11} />
                         Detaje
                       </button>
