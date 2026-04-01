@@ -1,7 +1,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { ShieldCheck, Clock, Activity, ArrowUpRight, ChevronRight, Car, Flame, Camera, FileText } from 'lucide-react'
 import OccupancyRealtime from '@/components/admin/OccupancyRealtime'
+import AdminReportsRealtimeRefresh from '@/components/admin/AdminReportsRealtimeRefresh'
 import AnalyticsPanel from '@/components/admin/AnalyticsPanel'
+import NotificationsPanel from '@/components/shared/NotificationsPanel'
+import { getAdminNotifications } from '@/lib/notifications'
 
 export const metadata = {
   title: 'Paneli Kryesor | Shkodra.digital',
@@ -9,6 +12,7 @@ export const metadata = {
 
 export default async function AdminDashboardPage() {
   const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
   const now = new Date()
   const today = now.toISOString().split('T')[0]
@@ -24,6 +28,7 @@ export default async function AdminDashboardPage() {
     { data: recentLogs },
     { data: weekLogs },
     { data: reportRows },
+    { items: notifications, unreadCount: notificationsUnreadCount },
   ] = await Promise.all([
     supabase.from('scan_logs').select('*', { count: 'exact', head: true }).eq('action', 'ENTRY').gte('scanned_at', `${today}T00:00:00Z`),
     supabase.from('scan_logs').select('*', { count: 'exact', head: true }).eq('action', 'EXIT').gte('scanned_at', `${today}T00:00:00Z`),
@@ -38,6 +43,7 @@ export default async function AdminDashboardPage() {
       .select('id, category, status, photo_url, latitude, longitude, created_at')
       .order('created_at', { ascending: false })
       .limit(250),
+    getAdminNotifications(supabase, user?.id ?? null, { limit: 6 }),
   ])
 
   const occupancy = Math.max(0, (entries ?? 0) - (exits ?? 0))
@@ -87,6 +93,8 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <AdminReportsRealtimeRefresh />
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <StatCard label="Targa Aktive" value={activeCount ?? 0} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend="Të miratuara" positive />
         <StatCard label="Kërkesa në Pritje" value={pendingCount ?? 0} icon={<Clock size={20} className="text-amber-400" />} trend="Presin miratim" />
@@ -175,6 +183,17 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
       </section>
+
+      <NotificationsPanel
+        title="Njoftimet operative"
+        subtitle="Raporte dhe kërkesa që kërkojnë veprim"
+        notifications={notifications}
+        unreadCount={notificationsUnreadCount}
+        emptyMessage="Kur të vijnë raportime të reja ose kërkesa në pritje, ato do të shfaqen këtu."
+        actionHref="/admin/raportet"
+        actionLabel="Hape panelin e raporteve"
+        enableReadActions
+      />
 
       <div className="bg-[#050914]/80 backdrop-blur-2xl rounded-[28px] border border-white/5 overflow-hidden">
         <div className="p-6 border-b border-white/5 flex items-center justify-between">

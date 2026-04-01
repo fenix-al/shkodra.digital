@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { requireRole, ROLES } from '@/lib/auth/roles'
+import { createNotification, REPORT_CATEGORY_LABELS } from '@/lib/notifications'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createServiceSupabaseClient } from '@/lib/supabase/service'
 
@@ -105,15 +106,19 @@ export async function submitReport(_prevState, formData) {
     return { error: 'Skedari i fotos nuk u lexua siç duhet.' }
   }
 
-  const { error } = await supabase.from('citizen_reports').insert({
-    reporter_id: profile.id,
-    category,
-    description,
-    latitude,
-    longitude,
-    photo_url,
-    status: 'hapur',
-  })
+  const { data: insertedReport, error } = await supabase
+    .from('citizen_reports')
+    .insert({
+      reporter_id: profile.id,
+      category,
+      description,
+      latitude,
+      longitude,
+      photo_url,
+      status: 'hapur',
+    })
+    .select('id, category')
+    .single()
 
   if (error) {
     if (uploadedPath) {
@@ -124,7 +129,35 @@ export async function submitReport(_prevState, formData) {
     return { error: 'Raporti dështoi të dërgohet. Provo përsëri.' }
   }
 
+  const categoryLabel = REPORT_CATEGORY_LABELS[category] ?? category
+
+  await Promise.all([
+    createNotification({
+      recipientId: profile.id,
+      actorId: profile.id,
+      title: 'Raporti juaj u pranua',
+      body: `Raporti per ${categoryLabel.toLowerCase()} u regjistrua dhe pret verifikim nga bashkia.`,
+      href: '/citizen/dashboard',
+      tone: 'blue',
+      icon: photo_url ? 'camera' : 'report',
+      kind: 'report_submitted',
+      metadata: { reportId: insertedReport?.id ?? null, category, photoUrl: photo_url },
+    }),
+    createNotification({
+      recipientRole: 'admin',
+      actorId: profile.id,
+      title: 'Raport i ri qytetar',
+      body: `${categoryLabel} i ri${photo_url ? ' me foto' : ''} pret verifikim ne panelin e raporteve.`,
+      href: `/admin/raportet?reportId=${insertedReport?.id ?? ''}`,
+      tone: photo_url ? 'amber' : 'blue',
+      icon: photo_url ? 'camera' : 'report',
+      kind: 'admin_report_submitted',
+      metadata: { reportId: insertedReport?.id ?? null, category, photoUrl: photo_url },
+    }),
+  ])
+
   revalidatePath('/citizen/dashboard')
+  revalidatePath('/admin/dashboard')
   revalidatePath('/admin/raportet')
 
   return { success: 'Raporti u dërgua me sukses. Faleminderit!' }
@@ -143,6 +176,14 @@ export async function updateReportStatus(reportId, status) {
   const validStatuses = ['në_shqyrtim', 'zgjidhur', 'refuzuar']
   if (!validStatuses.includes(status)) throw new Error('Status i pavlefshëm.')
 
+  const { data: existingReport, error: existingReportError } = await supabase
+    .from('citizen_reports')
+    .select('id, reporter_id, category, photo_url')
+    .eq('id', reportId)
+    .single()
+
+  if (existingReportError || !existingReport) throw new Error('Raporti nuk u gjet.')
+
   const update = {
     status,
     ...(status === 'zgjidhur' || status === 'refuzuar'
@@ -157,5 +198,41 @@ export async function updateReportStatus(reportId, status) {
 
   if (error) throw new Error('Ndryshimi i statusit dështoi.')
 
+  const categoryLabel = REPORT_CATEGORY_LABELS[existingReport.category] ?? existingReport.category
+  const statusMessages = {
+    në_shqyrtim: {
+      body: `Raporti per ${categoryLabel.toLowerCase()} po trajtohet nga drejtoria perkatese.`,
+      icon: 'clock',
+      title: 'Raporti po trajtohet',
+      tone: 'amber',
+    },
+    zgjidhur: {
+      body: `Raporti per ${categoryLabel.toLowerCase()} u zgjidh dhe u mbyll nga bashkia.`,
+      icon: 'check',
+      title: 'Raporti u zgjidh',
+      tone: 'emerald',
+    },
+    refuzuar: {
+      body: `Raporti per ${categoryLabel.toLowerCase()} u mbyll me status refuzuar. Mund te raportoni perseri nese duhet sqarim shtese.`,
+      icon: 'x',
+      title: 'Raporti u mbyll',
+      tone: 'rose',
+    },
+  }
+
+  await createNotification({
+    recipientId: existingReport.reporter_id,
+    actorId: profile.id,
+    title: statusMessages[status].title,
+    body: statusMessages[status].body,
+    href: '/citizen/dashboard',
+    tone: statusMessages[status].tone,
+    icon: statusMessages[status].icon,
+    kind: 'report_status_changed',
+    metadata: { reportId, category: existingReport.category, status, photoUrl: existingReport.photo_url ?? null },
+  })
+
   revalidatePath('/admin/raportet')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
 }

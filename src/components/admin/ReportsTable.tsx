@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   ArrowDownWideNarrow,
@@ -44,7 +45,7 @@ interface Report {
 }
 
 interface Props {
-  initialReports: Report[]
+  reports: Report[]
   onFocusReport?: (reportId: string) => void
 }
 
@@ -234,26 +235,77 @@ function StatusBadge({ status }: { status: ReportStatus }) {
   )
 }
 
-export default function ReportsTable({ initialReports, onFocusReport }: Props) {
-  const [reports, setReports] = useState(initialReports)
+export default function ReportsTable({ reports: baseReports, onFocusReport }: Props) {
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const [photoFilter, setPhotoFilter] = useState<PhotoFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('priority_desc')
   const [search, setSearch] = useState('')
-  const [detailReport, setDetailReport] = useState<Report | null>(null)
+  const [detailReportId, setDetailReportId] = useState<string | null>(null)
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [pendingStatusChanges, setPendingStatusChanges] = useState<Record<string, ReportStatus>>({})
   const [isPending, startTransition] = useTransition()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const queryReportId = searchParams.get('reportId')
+  const reports = useMemo(
+    () =>
+      baseReports.map((report) => {
+        const pendingStatus = pendingStatusChanges[report.id]
+        return pendingStatus ? { ...report, status: pendingStatus } : report
+      }),
+    [baseReports, pendingStatusChanges],
+  )
+  const detailReport = useMemo(
+    () => reports.find((report) => report.id === (detailReportId ?? queryReportId)) ?? null,
+    [detailReportId, queryReportId, reports],
+  )
+
+  useEffect(() => {
+    if (queryReportId) {
+      onFocusReport?.(queryReportId)
+    }
+  }, [onFocusReport, queryReportId])
+
+  function openReportDetail(report: Report) {
+    const nextSearchParams = new URLSearchParams(searchParams.toString())
+    nextSearchParams.set('reportId', report.id)
+    router.replace(`${pathname}?${nextSearchParams.toString()}`, { scroll: false })
+    onFocusReport?.(report.id)
+    setDetailReportId(report.id)
+  }
+
+  function closeReportDetail() {
+    const nextSearchParams = new URLSearchParams(searchParams.toString())
+    nextSearchParams.delete('reportId')
+    const query = nextSearchParams.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    setDetailReportId(null)
+  }
 
   function handleStatusChange(reportId: string, newStatus: ReportStatus) {
     setOpenMenuId(null)
     startTransition(async () => {
-      setReports((prev) => prev.map((r) => (r.id === reportId ? { ...r, status: newStatus } : r)))
+      setPendingStatusChanges((current) => ({ ...current, [reportId]: newStatus }))
       try {
         await updateReportStatus(reportId, newStatus)
       } catch {
-        setReports(initialReports)
+        setPendingStatusChanges((current) => {
+          if (!(reportId in current)) return current
+          const next = { ...current }
+          delete next[reportId]
+          return next
+        })
+        return
       }
+
+      setPendingStatusChanges((current) => {
+        if (!(reportId in current)) return current
+        const next = { ...current }
+        delete next[reportId]
+        return next
+      })
     })
   }
 
@@ -453,9 +505,6 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
   }
 
   function exportPdf() {
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900')
-    if (!printWindow) return
-
     const logoUrl = `${window.location.origin}/municipality-shkoder-logo.svg`
 
     const summaryHtml = exportSummary.map((item) => `
@@ -478,7 +527,7 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
       </tr>
     `).join('')
 
-    printWindow.document.write(`
+    const html = `
       <!doctype html>
       <html lang="sq">
         <head>
@@ -553,18 +602,36 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
           <p class="muted print-note">Përdor Print ose Save as PDF për të ruajtur dokumentin.</p>
         </body>
       </html>
-    `)
+    `
 
-    printWindow.document.close()
-    printWindow.focus()
-    printWindow.print()
+    const iframe = document.createElement('iframe')
+    iframe.style.position = 'fixed'
+    iframe.style.right = '0'
+    iframe.style.bottom = '0'
+    iframe.style.width = '0'
+    iframe.style.height = '0'
+    iframe.style.border = '0'
+    iframe.style.visibility = 'hidden'
+    iframe.onload = () => {
+      const frameWindow = iframe.contentWindow
+      if (!frameWindow) return
+      window.setTimeout(() => {
+        frameWindow.focus()
+        frameWindow.print()
+      }, 250)
+      window.setTimeout(() => {
+        document.body.removeChild(iframe)
+      }, 2000)
+    }
+    document.body.appendChild(iframe)
+    iframe.srcdoc = html
   }
 
   return (
     <>
       {detailReport && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setDetailReport(null)} aria-hidden />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeReportDetail} aria-hidden />
           <div className="relative w-full max-w-lg backdrop-blur-xl bg-[#050914]/98 border border-white/10 rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-white/5">
               <div className="flex items-center gap-3">
@@ -574,7 +641,7 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
                   <p className="text-xs text-slate-500">{formatDate(detailReport.created_at)}</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setDetailReport(null)} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95">
+              <button type="button" onClick={closeReportDetail} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95">
                 <X size={17} />
               </button>
             </div>
@@ -615,7 +682,7 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
               {NEXT_STATUSES[detailReport.status] && (
                 <div className="flex gap-2 pt-2 border-t border-white/5">
                   {NEXT_STATUSES[detailReport.status]!.map((ns) => (
-                    <button key={ns.value} type="button" disabled={isPending} onClick={() => { handleStatusChange(detailReport.id, ns.value); setDetailReport((r) => (r ? { ...r, status: ns.value } : null)) }} className={cx('flex-1 py-2.5 rounded-xl text-xs font-bold border border-white/5 transition-all active:scale-95 disabled:opacity-40', ns.className)}>
+                    <button key={ns.value} type="button" disabled={isPending} onClick={() => { handleStatusChange(detailReport.id, ns.value) }} className={cx('flex-1 py-2.5 rounded-xl text-xs font-bold border border-white/5 transition-all active:scale-95 disabled:opacity-40', ns.className)}>
                       {ns.label}
                     </button>
                   ))}
@@ -849,8 +916,7 @@ export default function ReportsTable({ initialReports, onFocusReport }: Props) {
                       <button
                         type="button"
                         onClick={() => {
-                          onFocusReport?.(report.id)
-                          setDetailReport(report)
+                          openReportDetail(report)
                         }}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5 text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-all active:scale-95"
                       >

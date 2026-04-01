@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createServiceSupabaseClient } from '@/lib/supabase/service'
 import { requireRole } from '@/lib/auth/roles'
 import { ROLES } from '@/lib/auth/roles'
+import { createNotification } from '@/lib/notifications'
 import { generateRandomPassword } from '@/lib/utils/password'
 import { revalidatePath } from 'next/cache'
 
@@ -14,6 +15,14 @@ import { revalidatePath } from 'next/cache'
 export async function approvePlate(plateId) {
   const supabase = await createServerSupabaseClient()
   const { profile } = await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
+
+  const { data: plate, error: plateError } = await supabase
+    .from('authorized_plates')
+    .select('id, owner_id, plate_number')
+    .eq('id', plateId)
+    .single()
+
+  if (plateError || !plate) throw new Error('Autorizimi nuk u gjet.')
 
   const { error } = await supabase
     .from('authorized_plates')
@@ -26,7 +35,23 @@ export async function approvePlate(plateId) {
 
   if (error) throw new Error('Miratimi dështoi. Provo përsëri.')
 
+  if (plate.owner_id) {
+    await createNotification({
+      recipientId: plate.owner_id,
+      actorId: profile.id,
+      title: 'Autorizimi u miratua',
+      body: `Targa ${plate.plate_number} u miratua dhe mund te perdoret per akses.`,
+      href: '/citizen/dashboard',
+      tone: 'emerald',
+      icon: 'shield',
+      kind: 'authorization_approved',
+      metadata: { plateId, plateNumber: plate.plate_number },
+    })
+  }
+
   revalidatePath('/admin/autorizimet')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
 }
 
 /**
@@ -36,7 +61,15 @@ export async function approvePlate(plateId) {
  */
 export async function rejectPlate(plateId, notes) {
   const supabase = await createServerSupabaseClient()
-  await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
+  const { profile } = await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
+
+  const { data: plate, error: plateError } = await supabase
+    .from('authorized_plates')
+    .select('id, owner_id, plate_number')
+    .eq('id', plateId)
+    .single()
+
+  if (plateError || !plate) throw new Error('Autorizimi nuk u gjet.')
 
   const { error } = await supabase
     .from('authorized_plates')
@@ -45,7 +78,23 @@ export async function rejectPlate(plateId, notes) {
 
   if (error) throw new Error('Refuzimi dështoi. Provo përsëri.')
 
+  if (plate.owner_id) {
+    await createNotification({
+      recipientId: plate.owner_id,
+      actorId: profile.id,
+      title: 'Autorizimi u refuzua',
+      body: `Kerkesa per targen ${plate.plate_number} u refuzua.${notes ? ` Arsye: ${notes}` : ''}`,
+      href: '/citizen/dashboard',
+      tone: 'rose',
+      icon: 'x',
+      kind: 'authorization_rejected',
+      metadata: { plateId, plateNumber: plate.plate_number },
+    })
+  }
+
   revalidatePath('/admin/autorizimet')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
 }
 
 /**
@@ -56,7 +105,7 @@ export async function rejectPlate(plateId, notes) {
 export async function addPlate(_prevState, formData) {
   // Verify role with session client first
   const supabase = await createServerSupabaseClient()
-  await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
+  const { profile } = await requireRole(supabase, [ROLES.MANAGER, ROLES.SUPER_ADMIN])
 
   const plate_number = formData.get('plate_number')?.toString().trim().toUpperCase()
   const owner_name   = formData.get('owner_name')?.toString().trim()
@@ -111,8 +160,24 @@ export async function addPlate(_prevState, formData) {
   if (error?.code === '23505') return { error: 'Kjo targë është tashmë e regjistruar.' }
   if (error) return { error: 'Shtimi dështoi. Provo përsëri.' }
 
+  if (owner_id) {
+    await createNotification({
+      recipientId: owner_id,
+      actorId: profile.id,
+      title: 'Autorizimi u aktivizua',
+      body: `Targa ${plate_number} u aktivizua nga administrata dhe eshte gati per perdorim.`,
+      href: '/citizen/dashboard',
+      tone: 'emerald',
+      icon: 'shield',
+      kind: 'authorization_created',
+      metadata: { plateNumber: plate_number },
+    })
+  }
+
   revalidatePath('/admin/autorizimet')
   revalidatePath('/admin/perdoruesit')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
 
   return {
     success: 'Targa u shtua me sukses.',
@@ -149,6 +214,8 @@ export async function importPlates(rows) {
   if (error) return { error: `Importimi dështoi: ${error.message}` }
 
   revalidatePath('/admin/autorizimet')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
   return { success: `${records.length} targa u importuan me sukses.` }
 }
 
@@ -169,13 +236,17 @@ export async function requestAuthorization(_prevState, formData) {
     return { error: 'Targa dhe emri janë të detyrueshme.' }
   }
 
-  const { error } = await supabase.from('authorized_plates').insert({
-    owner_id: profile.id,
-    plate_number,
-    owner_name,
-    vehicle_type,
-    status: 'pending',
-  })
+  const { data: createdRequest, error } = await supabase
+    .from('authorized_plates')
+    .insert({
+      owner_id: profile.id,
+      plate_number,
+      owner_name,
+      vehicle_type,
+      status: 'pending',
+    })
+    .select('id')
+    .single()
 
   if (error?.code === '23505') {
     return { error: 'Kjo targë është tashmë e regjistruar.' }
@@ -183,6 +254,35 @@ export async function requestAuthorization(_prevState, formData) {
   if (error) {
     return { error: 'Kërkesa dështoi. Provo përsëri.' }
   }
+
+  await Promise.all([
+    createNotification({
+      recipientId: profile.id,
+      actorId: profile.id,
+      title: 'Kerkesa u regjistrua',
+      body: `Kerkesa per targen ${plate_number} u dergua dhe pret shqyrtim nga bashkia.`,
+      href: '/citizen/dashboard',
+      tone: 'amber',
+      icon: 'car',
+      kind: 'authorization_requested',
+      metadata: { plateId: createdRequest?.id ?? null, plateNumber: plate_number },
+    }),
+    createNotification({
+      recipientRole: 'admin',
+      actorId: profile.id,
+      title: 'Kerkese e re per autorizim',
+      body: `${owner_name} dergoi kerkese te re per targen ${plate_number}.`,
+      href: '/admin/autorizimet',
+      tone: 'amber',
+      icon: 'car',
+      kind: 'admin_authorization_requested',
+      metadata: { plateId: createdRequest?.id ?? null, plateNumber: plate_number },
+    }),
+  ])
+
+  revalidatePath('/citizen/dashboard')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/admin/autorizimet')
 
   return { success: 'Kërkesa u dërgua. Do të njoftoheni pas shqyrtimit.' }
 }

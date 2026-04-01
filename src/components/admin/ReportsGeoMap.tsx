@@ -149,6 +149,38 @@ function formatShortDate(timestamp: number) {
   return `${dd}.${mm}.${yyyy}`
 }
 
+function isSameUtcDay(a: number, b: number) {
+  const first = new Date(a)
+  const second = new Date(b)
+  return (
+    first.getUTCFullYear() === second.getUTCFullYear() &&
+    first.getUTCMonth() === second.getUTCMonth() &&
+    first.getUTCDate() === second.getUTCDate()
+  )
+}
+
+function getRelativeDayLabel(timestamp: number) {
+  const now = new Date()
+  const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const targetUtc = Date.UTC(new Date(timestamp).getUTCFullYear(), new Date(timestamp).getUTCMonth(), new Date(timestamp).getUTCDate())
+  const dayDiff = Math.round((todayUtc - targetUtc) / (24 * 60 * 60 * 1000))
+
+  if (dayDiff === 0) return 'Sot'
+  if (dayDiff === 1) return 'Dje'
+  return formatShortDate(timestamp)
+}
+
+function getRelativeWeekLabel(timestamp: number) {
+  const now = Date.now()
+  const currentWeek = getWeekBounds(now).start
+  const targetWeek = getWeekBounds(timestamp).start
+  const diffWeeks = Math.round((currentWeek - targetWeek) / (7 * 24 * 60 * 60 * 1000))
+
+  if (diffWeeks === 0) return 'Kjo jave'
+  if (diffWeeks === 1) return 'Java e kaluar'
+  return `Java e ${formatShortDate(timestamp)}`
+}
+
 function getWeekBounds(timestamp: number) {
   const date = new Date(timestamp)
   const day = date.getUTCDay() || 7
@@ -178,12 +210,12 @@ function getPlaybackFrames(reports: GeoReport[], mode: PlaybackMode) {
 
     if (mode === 'day') {
       const { start, end } = getDayBounds(createdAt)
-      framesMap.set(String(start), { key: String(start), label: formatShortDate(start), cutoff: end })
+      framesMap.set(String(start), { key: String(start), label: getRelativeDayLabel(start), cutoff: end })
       return
     }
 
     const { start, end } = getWeekBounds(createdAt)
-    framesMap.set(String(start), { key: String(start), label: `Java e ${formatShortDate(start)}`, cutoff: end })
+    framesMap.set(String(start), { key: String(start), label: getRelativeWeekLabel(start), cutoff: end })
   })
 
   return [...framesMap.values()].sort((a, b) => Number(a.key) - Number(b.key))
@@ -368,12 +400,13 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
     : `manual:${focusNonce}:${activePlaybackFrame?.key ?? 'all'}`
 
   const playbackProgress = playbackFrames.length > 1 ? Math.round(((cappedPlaybackIndex + 1) / playbackFrames.length) * 100) : playbackFrames.length === 1 ? 100 : 0
+  const playbackChartPeak = useMemo(
+    () => Math.max(1, ...playbackFrameSummary.map((frame) => frame.added)),
+    [playbackFrameSummary],
+  )
 
   function exportPlaybackPresentation() {
     if (playbackMode === 'off' || playbackFrameSummary.length === 0) return
-
-    const popup = window.open('', '_blank', 'noopener,noreferrer,width=1440,height=900')
-    if (!popup) return
 
     const rowsHtml = playbackFrameSummary
       .map(
@@ -387,7 +420,7 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
       )
       .join('')
 
-    popup.document.write(`
+    const html = `
       <!doctype html>
       <html lang="sq">
         <head>
@@ -579,9 +612,384 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
           </div>
         </body>
       </html>
-    `)
+    `
 
-    popup.document.close()
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    window.open(url, '_blank', 'width=1440,height=900')
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+  }
+
+  function openStudioMode() {
+    if (playbackMode === 'off' || playbackFrameSummary.length === 0) return
+
+    const studioFrames = JSON.stringify(playbackFrameSummary)
+    const modeLabel = PLAYBACK_OPTIONS.find((option) => option.value === playbackMode)?.label ?? 'Playback'
+    const dateLabel = DATE_OPTIONS.find((option) => option.value === dateFilter)?.label ?? 'Gjithe koha'
+    const mapLabel = MAP_MODE_OPTIONS.find((option) => option.value === mapMode)?.label ?? 'Hybrid'
+    const logoUrl = `${window.location.origin}/municipality-shkoder-logo.svg`
+
+    const html = `
+      <!doctype html>
+      <html lang="sq">
+        <head>
+          <meta charset="utf-8" />
+          <title>Studio Mode | Shkodra.digital</title>
+          <style>
+            :root { color-scheme: dark; }
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              font-family: Arial, sans-serif;
+              background:
+                radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 28%),
+                radial-gradient(circle at top right, rgba(251, 113, 133, 0.14), transparent 24%),
+                linear-gradient(180deg, #08111d 0%, #030712 100%);
+              color: #e2e8f0;
+              overflow: hidden;
+            }
+            .shell {
+              min-height: 100vh;
+              padding: 28px;
+              display: grid;
+              grid-template-rows: auto auto 1fr auto;
+              gap: 18px;
+            }
+            .hero, .card {
+              border: 1px solid rgba(255,255,255,0.08);
+              border-radius: 28px;
+              background: rgba(15, 23, 42, 0.72);
+              box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+            }
+            .hero {
+              padding: 26px 30px;
+              display: flex;
+              align-items: end;
+              justify-content: space-between;
+              gap: 24px;
+            }
+            .brand {
+              display: flex;
+              align-items: center;
+              gap: 18px;
+            }
+            .brand img {
+              width: 76px;
+              height: auto;
+              flex-shrink: 0;
+              filter: drop-shadow(0 10px 24px rgba(0,0,0,0.28));
+            }
+            .eyebrow {
+              font-size: 12px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              color: #94a3b8;
+              font-weight: 700;
+            }
+            h1 {
+              margin: 10px 0 8px;
+              font-size: 42px;
+              line-height: 1.02;
+            }
+            .subtitle {
+              color: #cbd5e1;
+              font-size: 16px;
+            }
+            .hero-meta {
+              display: flex;
+              gap: 12px;
+              flex-wrap: wrap;
+              justify-content: flex-end;
+            }
+            .pill {
+              display: inline-flex;
+              align-items: center;
+              padding: 10px 14px;
+              border-radius: 999px;
+              border: 1px solid rgba(255,255,255,0.08);
+              background: rgba(255,255,255,0.04);
+              color: #cbd5e1;
+              font-weight: 700;
+              font-size: 12px;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+            }
+            .stats {
+              display: grid;
+              grid-template-columns: repeat(4, minmax(0, 1fr));
+              gap: 16px;
+            }
+            .card { padding: 20px; }
+            .label {
+              color: #94a3b8;
+              text-transform: uppercase;
+              letter-spacing: 0.14em;
+              font-size: 11px;
+              font-weight: 700;
+            }
+            .value {
+              margin-top: 10px;
+              font-size: 42px;
+              font-weight: 800;
+            }
+            .muted { color: #cbd5e1; font-size: 14px; }
+            .grid {
+              display: grid;
+              grid-template-columns: 1.15fr 0.85fr;
+              gap: 18px;
+              min-height: 0;
+            }
+            .screen {
+              min-height: 0;
+              display: grid;
+              gap: 16px;
+            }
+            .stage {
+              min-height: 0;
+              display: grid;
+              align-items: center;
+              justify-items: center;
+              padding: 24px;
+              background:
+                linear-gradient(180deg, rgba(10,20,36,0.96), rgba(4,9,20,0.96)),
+                linear-gradient(90deg, rgba(56,189,248,0.12), rgba(34,197,94,0.08), rgba(251,113,133,0.12));
+            }
+            .progress-wrap {
+              width: min(900px, 100%);
+            }
+            .progress-bar {
+              height: 26px;
+              border-radius: 999px;
+              overflow: hidden;
+              background: rgba(255,255,255,0.06);
+              border: 1px solid rgba(255,255,255,0.08);
+            }
+            .progress-bar > div {
+              height: 100%;
+              width: 0%;
+              background: linear-gradient(90deg, #38bdf8 0%, #22c55e 45%, #f59e0b 72%, #fb7185 100%);
+              transition: width 500ms ease;
+            }
+            .big-frame {
+              margin-top: 22px;
+              font-size: 68px;
+              font-weight: 900;
+              line-height: 0.95;
+              text-align: center;
+            }
+            .sub-frame {
+              margin-top: 14px;
+              color: #cbd5e1;
+              text-align: center;
+              font-size: 22px;
+            }
+            .timeline {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 14px;
+            }
+            .timeline th, .timeline td {
+              text-align: left;
+              padding: 12px 10px;
+              border-bottom: 1px solid rgba(255,255,255,0.08);
+            }
+            .timeline th {
+              color: #94a3b8;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+            }
+            .timeline tr.active {
+              background: rgba(16, 185, 129, 0.12);
+            }
+            .controls {
+              display: flex;
+              gap: 12px;
+              justify-content: center;
+              flex-wrap: wrap;
+            }
+            button {
+              border: 1px solid rgba(255,255,255,0.1);
+              background: rgba(255,255,255,0.04);
+              color: #e2e8f0;
+              border-radius: 999px;
+              padding: 12px 18px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+            button.primary {
+              border-color: rgba(16,185,129,0.28);
+              background: rgba(16,185,129,0.14);
+              color: #6ee7b7;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="shell">
+            <section class="hero">
+              <div class="brand">
+                <img src="${logoUrl}" alt="Bashkia Shkoder" />
+                <div>
+                  <div class="eyebrow">Bashkia Shkoder | Shkodra.digital</div>
+                  <h1>Studio Mode</h1>
+                  <div class="subtitle">Playback automatik për TV të madh, studio dhe prezantime javore.</div>
+                </div>
+              </div>
+              <div class="hero-meta">
+                <div class="pill">${escapeHtml(modeLabel)}</div>
+                <div class="pill">${escapeHtml(dateLabel)}</div>
+                <div class="pill">${escapeHtml(mapLabel)}</div>
+              </div>
+            </section>
+
+            <section class="stats">
+              <div class="card">
+                <div class="label">Frame aktual</div>
+                <div class="value" id="frameLabel">-</div>
+              </div>
+              <div class="card">
+                <div class="label">Shtuar ne frame</div>
+                <div class="value" id="frameAdded">0</div>
+              </div>
+              <div class="card">
+                <div class="label">Raste kumulative</div>
+                <div class="value" id="frameTotal">0</div>
+              </div>
+              <div class="card">
+                <div class="label">Progres</div>
+                <div class="value" id="frameProgress">0%</div>
+                <div class="muted">Rotullim automatik aktiv</div>
+              </div>
+            </section>
+
+            <section class="grid">
+              <div class="screen">
+                <div class="card stage">
+                  <div class="progress-wrap">
+                    <div class="progress-bar"><div id="progressBar"></div></div>
+                  </div>
+                  <div class="big-frame" id="headline">-</div>
+                  <div class="sub-frame" id="subHeadline">Raportet po ecin ne kohe reale</div>
+                </div>
+                <div class="controls">
+                  <button id="toggleBtn" class="primary">Ndalo</button>
+                  <button id="prevBtn">Mbrapa</button>
+                  <button id="nextBtn">Para</button>
+                  <button id="resetBtn">Reset</button>
+                </div>
+              </div>
+              <div class="card">
+                <div class="eyebrow">Timeline</div>
+                <h2 style="margin:10px 0 6px; font-size:28px;">Ecuria e frame-ve</h2>
+                <table class="timeline">
+                  <thead>
+                    <tr>
+                      <th>Frame</th>
+                      <th>+ Raste</th>
+                      <th>Kumulative</th>
+                    </tr>
+                  </thead>
+                  <tbody id="timelineBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <script>
+            const frames = ${studioFrames};
+            let index = ${cappedPlaybackIndex};
+            let playing = true;
+            let timer = null;
+
+            const frameLabel = document.getElementById('frameLabel');
+            const frameAdded = document.getElementById('frameAdded');
+            const frameTotal = document.getElementById('frameTotal');
+            const frameProgress = document.getElementById('frameProgress');
+            const headline = document.getElementById('headline');
+            const subHeadline = document.getElementById('subHeadline');
+            const progressBar = document.getElementById('progressBar');
+            const timelineBody = document.getElementById('timelineBody');
+            const toggleBtn = document.getElementById('toggleBtn');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+            const resetBtn = document.getElementById('resetBtn');
+
+            function render() {
+              const frame = frames[index];
+              const progress = frames.length > 1 ? Math.round(((index + 1) / frames.length) * 100) : 100;
+
+              frameLabel.textContent = frame.label;
+              frameAdded.textContent = frame.added;
+              frameTotal.textContent = frame.total;
+              frameProgress.textContent = progress + '%';
+              headline.textContent = frame.label;
+              subHeadline.textContent = frame.added + ' raste te reja, ' + frame.total + ' kumulative';
+              progressBar.style.width = progress + '%';
+
+              timelineBody.innerHTML = frames.map((item, itemIndex) => {
+                const activeClass = itemIndex === index ? 'active' : '';
+                return '<tr class="' + activeClass + '"><td>' + item.label + '</td><td>' + item.added + '</td><td>' + item.total + '</td></tr>';
+              }).join('');
+
+              toggleBtn.textContent = playing ? 'Ndalo' : 'Luaj';
+            }
+
+            function stopTimer() {
+              if (timer) window.clearInterval(timer);
+              timer = null;
+            }
+
+            function startTimer() {
+              stopTimer();
+              if (!playing || frames.length <= 1) return;
+              timer = window.setInterval(() => {
+                index = index >= frames.length - 1 ? 0 : index + 1;
+                render();
+              }, ${playbackMode === 'day' ? 1400 : 1800});
+            }
+
+            toggleBtn.addEventListener('click', () => {
+              playing = !playing;
+              render();
+              startTimer();
+            });
+
+            prevBtn.addEventListener('click', () => {
+              playing = false;
+              index = index <= 0 ? frames.length - 1 : index - 1;
+              render();
+              startTimer();
+            });
+
+            nextBtn.addEventListener('click', () => {
+              playing = false;
+              index = index >= frames.length - 1 ? 0 : index + 1;
+              render();
+              startTimer();
+            });
+
+            resetBtn.addEventListener('click', () => {
+              playing = true;
+              index = 0;
+              render();
+              startTimer();
+            });
+
+            render();
+            startTimer();
+
+            try {
+              window.moveTo(0, 0);
+              window.resizeTo(screen.availWidth, screen.availHeight);
+            } catch {}
+          </script>
+        </body>
+      </html>
+    `
+
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+    window.open(url, '_blank', 'width=1600,height=960')
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000)
   }
 
   if (geolocatedReports.length === 0) {
@@ -670,6 +1078,7 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
                     <button type="button" onClick={() => { setIsPlaying(false); setPlaybackIndex((current) => Math.min(playbackFrames.length - 1, current + 1)) }} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-bold text-slate-200 transition-all hover:bg-white/[0.06]">Para<ChevronRight size={14} /></button>
                     <button type="button" onClick={() => { setIsPlaying(false); setPlaybackIndex(0) }} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-bold text-slate-200 transition-all hover:bg-white/[0.06]"><TimerReset size={14} />Reset</button>
                     <button type="button" onClick={exportPlaybackPresentation} className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300 transition-all hover:bg-blue-500/15">Eksporto playback</button>
+                    <button type="button" onClick={openStudioMode} className="inline-flex items-center gap-2 rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/10 px-3 py-2 text-xs font-bold text-fuchsia-300 transition-all hover:bg-fuchsia-500/15">Studio mode</button>
                   </div>
                 </div>
                 <input type="range" min={0} max={Math.max(playbackFrames.length - 1, 0)} value={cappedPlaybackIndex} onChange={(e) => { setIsPlaying(false); setPlaybackIndex(Number(e.target.value)) }} className="w-full accent-emerald-400" />
@@ -686,6 +1095,49 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
                   <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3">
                     <p className="text-[10px] uppercase tracking-widest text-amber-300/80">Frames</p>
                     <p className="mt-1 text-2xl font-black text-amber-200">{playbackFrames.length}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Grafik kohor</p>
+                      <p className="mt-1 text-sm text-slate-300">Sa raste u shtuan ne cdo frame</p>
+                    </div>
+                    <div className="text-xs text-slate-500">Kulmi: {playbackChartPeak}</div>
+                  </div>
+
+                  <div className="mt-4 flex h-40 items-end gap-2 overflow-x-auto pb-1">
+                    {playbackFrameSummary.map((frame, index) => {
+                      const isActive = index === cappedPlaybackIndex
+                      const height = Math.max(12, Math.round((frame.added / playbackChartPeak) * 100))
+
+                      return (
+                        <button
+                          key={frame.label}
+                          type="button"
+                          onClick={() => {
+                            setIsPlaying(false)
+                            setPlaybackIndex(index)
+                          }}
+                          className="flex min-w-16 flex-1 flex-col items-center gap-2 text-center"
+                        >
+                          <div
+                            className={cx(
+                              'w-full rounded-t-2xl border border-white/10 transition-all',
+                              isActive
+                                ? 'bg-gradient-to-t from-emerald-400 to-sky-400 shadow-[0_0_24px_rgba(52,211,153,0.24)]'
+                                : 'bg-white/10 hover:bg-white/15',
+                            )}
+                            style={{ height: `${height}%` }}
+                          />
+                          <div className="space-y-0.5">
+                            <p className={cx('text-xs font-black', isActive ? 'text-emerald-300' : 'text-slate-200')}>{frame.added}</p>
+                            <p className="max-w-16 text-[10px] leading-tight text-slate-500">{frame.label}</p>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               </div>

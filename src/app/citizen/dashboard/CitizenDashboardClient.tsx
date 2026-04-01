@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Car, QrCode, Clock, CheckCircle2, XCircle, Hourglass, PauseCircle, ChevronRight, X } from 'lucide-react'
 import DynamicQR from '@/components/citizen/DynamicQR'
+import NotificationsPanel from '@/components/shared/NotificationsPanel'
 import { cx } from '@/lib/cx'
 
 type PlateStatus = 'approved' | 'pending' | 'rejected' | 'suspended'
@@ -21,6 +22,22 @@ interface Plate {
 interface Props {
   plates: Plate[]
   ownerName: string
+  notificationsUnreadCount: number
+  notifications: {
+    id: string
+    title: string
+    body: string
+    createdAt: string
+    href?: string | null
+    tone: 'emerald' | 'amber' | 'rose' | 'blue' | 'slate'
+    icon: 'report' | 'camera' | 'car' | 'check' | 'clock' | 'shield' | 'x' | 'alert'
+    readAt?: string | null
+    isUnread?: boolean
+    channelsStatus?: {
+      email?: string
+      push?: string
+    } | null
+  }[]
 }
 
 const STATUS_CONFIG: Record<PlateStatus, { label: string; icon: React.ElementType; className: string; dot: string }> = {
@@ -40,7 +57,7 @@ function formatDate(iso: string | null) {
   return `${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`
 }
 
-export default function CitizenDashboardClient({ plates, ownerName }: Props) {
+export default function CitizenDashboardClient({ plates, ownerName, notifications, notificationsUnreadCount }: Props) {
   const [qrPlate, setQrPlate] = useState<Plate | null>(null)
 
   const approvedPlates = plates.filter((p) => p.status === 'approved')
@@ -66,6 +83,16 @@ export default function CitizenDashboardClient({ plates, ownerName }: Props) {
           <p className="text-xs text-slate-400">Trokitni mbi një mjet të autorizuar për të shfaqur kodin QR.</p>
         </div>
       )}
+
+      <NotificationsPanel
+        title="Njoftimet tuaja"
+        subtitle="Statusi i kërkesave dhe raporteve"
+        notifications={notifications}
+        unreadCount={notificationsUnreadCount}
+        emptyMessage="Kur të dërgoni raportime ose kërkesa për autorizim, përditësimet do të shfaqen këtu."
+        enableReadActions
+        compact
+      />
 
       {/* ── Plates list ── */}
       {plates.length === 0 ? (
