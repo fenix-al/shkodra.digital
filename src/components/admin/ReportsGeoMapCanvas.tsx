@@ -78,7 +78,11 @@ function getPriority(report: GeoReport) {
   return { label: 'Normal', color: '#38bdf8' }
 }
 
-function createClusterCustomIcon(cluster: L.MarkerCluster) {
+interface ClusterLike {
+  getChildCount: () => number
+}
+
+function createClusterCustomIcon(cluster: ClusterLike) {
   const count = cluster.getChildCount()
   let tone = '#38bdf8'
   if (count >= 10) tone = '#fb7185'
