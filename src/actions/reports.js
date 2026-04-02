@@ -135,8 +135,8 @@ export async function submitReport(_prevState, formData) {
     createNotification({
       recipientId: profile.id,
       actorId: profile.id,
-      title: 'Raporti juaj u pranua',
-      body: `Raporti per ${categoryLabel.toLowerCase()} u regjistrua dhe pret verifikim nga bashkia.`,
+      title: 'Konfirmim i marrjes së raportit',
+      body: `Kërkesa juaj për ${categoryLabel.toLowerCase()} u regjistrua me sukses dhe është në pritje të verifikimit nga Bashkia Shkodër.`,
       href: '/citizen/dashboard',
       tone: 'blue',
       icon: photo_url ? 'camera' : 'report',

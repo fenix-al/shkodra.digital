@@ -21,10 +21,17 @@ export default async function CitizenDashboardPage() {
     getCitizenNotifications(supabase, profile.id),
   ])
 
+  const { data: notificationPreferences } = await supabase
+    .from('app_notification_preferences')
+    .select('email_enabled, push_enabled, digest_frequency')
+    .eq('profile_id', profile.id)
+    .maybeSingle()
+
   return (
     <CitizenDashboardClient
       notifications={notifications}
       notificationsUnreadCount={unreadCount}
+      notificationPreferences={notificationPreferences}
       plates={plates ?? []}
       ownerName={profile.full_name ?? 'Qytetar'}
     />

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Car, QrCode, Clock, CheckCircle2, XCircle, Hourglass, PauseCircle, ChevronRight, X } from 'lucide-react'
 import DynamicQR from '@/components/citizen/DynamicQR'
 import NotificationsPanel from '@/components/shared/NotificationsPanel'
+import NotificationPreferencesCard from '@/components/shared/NotificationPreferencesCard'
 import { cx } from '@/lib/cx'
 
 type PlateStatus = 'approved' | 'pending' | 'rejected' | 'suspended'
@@ -23,6 +24,11 @@ interface Props {
   plates: Plate[]
   ownerName: string
   notificationsUnreadCount: number
+  notificationPreferences?: {
+    email_enabled?: boolean
+    push_enabled?: boolean
+    digest_frequency?: 'instant' | 'daily' | 'weekly'
+  } | null
   notifications: {
     id: string
     title: string
@@ -41,48 +47,48 @@ interface Props {
 }
 
 const STATUS_CONFIG: Record<PlateStatus, { label: string; icon: React.ElementType; className: string; dot: string }> = {
-  approved:  { label: 'E autorizuar',  icon: CheckCircle2, className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-400' },
-  pending:   { label: 'Në pritje',     icon: Hourglass,    className: 'border-amber-500/20 bg-amber-500/10 text-amber-400',       dot: 'bg-amber-400' },
-  rejected:  { label: 'Refuzuar',      icon: XCircle,      className: 'border-rose-500/20 bg-rose-500/10 text-rose-400',          dot: 'bg-rose-400' },
-  suspended: { label: 'Pezulluar',     icon: PauseCircle,  className: 'border-slate-500/20 bg-slate-500/10 text-slate-400',       dot: 'bg-slate-400' },
+  approved: { label: 'E autorizuar', icon: CheckCircle2, className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400', dot: 'bg-emerald-400' },
+  pending: { label: 'Në pritje', icon: Hourglass, className: 'border-amber-500/20 bg-amber-500/10 text-amber-400', dot: 'bg-amber-400' },
+  rejected: { label: 'Refuzuar', icon: XCircle, className: 'border-rose-500/20 bg-rose-500/10 text-rose-400', dot: 'bg-rose-400' },
+  suspended: { label: 'Pezulluar', icon: PauseCircle, className: 'border-slate-500/20 bg-slate-500/10 text-slate-400', dot: 'bg-slate-400' },
 }
 
 const VEHICLE_LABELS: Record<string, string> = {
-  car: 'Automobil', motorcycle: 'Motocikletë', delivery: 'Shpërndarje', business: 'Biznes',
+  car: 'Automobil',
+  motorcycle: 'Motocikletë',
+  delivery: 'Shpërndarje',
+  business: 'Biznes',
 }
 
 function formatDate(iso: string | null) {
   if (!iso) return null
   const d = new Date(iso)
-  return `${String(d.getUTCDate()).padStart(2,'0')}.${String(d.getUTCMonth()+1).padStart(2,'0')}.${d.getUTCFullYear()}`
+  return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`
 }
 
-export default function CitizenDashboardClient({ plates, ownerName, notifications, notificationsUnreadCount }: Props) {
+export default function CitizenDashboardClient({ plates, ownerName, notifications, notificationsUnreadCount, notificationPreferences }: Props) {
   const [qrPlate, setQrPlate] = useState<Plate | null>(null)
 
   const approvedPlates = plates.filter((p) => p.status === 'approved')
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-6 max-w-lg mx-auto w-full">
-
-      {/* ── Greeting ── */}
+    <div className="mx-auto flex w-full max-w-lg flex-col gap-6 px-4 py-6">
       <div>
         <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Mirësevini</p>
-        <h1 className="text-2xl font-black tracking-tight text-slate-100 mt-1">{ownerName}</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
+        <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-100">{ownerName}</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
           {approvedPlates.length > 0
             ? `Keni ${approvedPlates.length} mjet${approvedPlates.length > 1 ? 'e' : ''} të autorizuar`
             : 'Nuk keni mjete të autorizuara ende'}
         </p>
       </div>
 
-      {/* ── Quick QR hint ── */}
-      {approvedPlates.length > 0 && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-emerald-500/5 border border-emerald-500/15">
-          <QrCode size={18} className="text-emerald-400 shrink-0" />
+      {approvedPlates.length > 0 ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/15 bg-emerald-500/5 px-4 py-3">
+          <QrCode size={18} className="shrink-0 text-emerald-400" />
           <p className="text-xs text-slate-400">Trokitni mbi një mjet të autorizuar për të shfaqur kodin QR.</p>
         </div>
-      )}
+      ) : null}
 
       <NotificationsPanel
         title="Njoftimet tuaja"
@@ -94,15 +100,21 @@ export default function CitizenDashboardClient({ plates, ownerName, notification
         compact
       />
 
-      {/* ── Plates list ── */}
+      <NotificationPreferencesCard
+        compact
+        title="Preferencat"
+        subtitle="Zgjidhni si doni t’i merrni njoftimet në aplikacion"
+        initialPreferences={notificationPreferences}
+      />
+
       {plates.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-          <div className="w-16 h-16 rounded-3xl bg-white/[0.03] border border-white/5 flex items-center justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-white/5 bg-white/[0.03]">
             <Car size={28} className="text-slate-700" />
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-400">Nuk keni mjete të regjistruara</p>
-            <p className="text-xs text-slate-600 mt-1">Kontaktoni administratën për të regjistruar mjetin tuaj.</p>
+            <p className="mt-1 text-xs text-slate-600">Kontaktoni administratën për të regjistruar mjetin tuaj.</p>
           </div>
         </div>
       ) : (
@@ -117,41 +129,36 @@ export default function CitizenDashboardClient({ plates, ownerName, notification
               <button
                 key={plate.id}
                 type="button"
-                onClick={() => canShowQR ? setQrPlate(plate) : undefined}
+                onClick={() => (canShowQR ? setQrPlate(plate) : undefined)}
                 disabled={!canShowQR}
-                className={cx('w-full text-left group backdrop-blur-md bg-white/[0.03] border border-white/10 rounded-2xl p-4 flex items-center gap-4 transition-all duration-200', canShowQR ? 'hover:bg-white/[0.06] hover:border-emerald-500/20 active:scale-[0.98] cursor-pointer' : 'cursor-default opacity-75')}
+                className={cx('group flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left backdrop-blur-md transition-all duration-200', canShowQR ? 'cursor-pointer hover:border-emerald-500/20 hover:bg-white/[0.06] active:scale-[0.98]' : 'cursor-default opacity-75')}
               >
-                {/* Vehicle icon */}
-                <div className="w-11 h-11 rounded-xl bg-white/[0.04] border border-white/5 flex items-center justify-center shrink-0">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/5 bg-white/[0.04]">
                   <Car size={20} className="text-slate-500" />
                 </div>
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-black text-base tracking-widest text-slate-100">{plate.plate_number}</span>
-                    {canShowQR && <QrCode size={13} className="text-emerald-400/60 group-hover:text-emerald-400 transition-colors" />}
+                    <span className="font-mono text-base font-black tracking-widest text-slate-100">{plate.plate_number}</span>
+                    {canShowQR ? <QrCode size={13} className="text-emerald-400/60 transition-colors group-hover:text-emerald-400" /> : null}
                   </div>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    {plate.vehicle_type && (
-                      <span className="text-[10px] text-slate-500">{VEHICLE_LABELS[plate.vehicle_type] ?? plate.vehicle_type}</span>
-                    )}
-                    {plate.valid_until && (
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    {plate.vehicle_type ? <span className="text-[10px] text-slate-500">{VEHICLE_LABELS[plate.vehicle_type] ?? plate.vehicle_type}</span> : null}
+                    {plate.valid_until ? (
                       <span className="flex items-center gap-1 text-[10px] text-slate-600">
                         <Clock size={9} />
                         deri {formatDate(plate.valid_until)}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Status badge */}
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex shrink-0 items-center gap-2">
                   <div className={cx('flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest', cfg.className)}>
-                    <span className={cx('w-1.5 h-1.5 rounded-full', cfg.dot)} />
+                    <span className={cx('h-1.5 w-1.5 rounded-full', cfg.dot)} />
                     <Icon size={10} />
                   </div>
-                  {canShowQR && <ChevronRight size={14} className="text-slate-600 group-hover:text-slate-400 transition-colors" />}
+                  {canShowQR ? <ChevronRight size={14} className="text-slate-600 transition-colors group-hover:text-slate-400" /> : null}
                 </div>
               </button>
             )
@@ -159,31 +166,28 @@ export default function CitizenDashboardClient({ plates, ownerName, notification
         </div>
       )}
 
-      {/* ── QR Modal ── */}
-      {qrPlate && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+      {qrPlate ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setQrPlate(null)} aria-hidden />
-          <div className="relative w-full max-w-sm backdrop-blur-xl bg-[#050914]/98 border border-white/10 rounded-3xl p-6 flex flex-col items-center gap-5 shadow-2xl">
-            <div className="flex items-center justify-between w-full">
+          <div className="relative flex w-full max-w-sm flex-col items-center gap-5 rounded-3xl border border-white/10 bg-[#050914]/98 p-6 shadow-2xl backdrop-blur-xl">
+            <div className="flex w-full items-center justify-between">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Kodi i aksesit</p>
-                <p className="text-sm font-semibold text-slate-200 mt-0.5">Zona Zdralës</p>
+                <p className="mt-0.5 text-sm font-semibold text-slate-200">Zona Zdralës</p>
               </div>
-              <button type="button" onClick={() => setQrPlate(null)} className="p-2 rounded-xl text-slate-500 hover:bg-white/5 hover:text-slate-300 transition-all active:scale-95">
+              <button type="button" onClick={() => setQrPlate(null)} className="rounded-xl p-2 text-slate-500 transition-all hover:bg-white/5 hover:text-slate-300 active:scale-95">
                 <X size={17} />
               </button>
             </div>
 
             <DynamicQR plateId={qrPlate.id} plateNumber={qrPlate.plate_number} />
 
-            {qrPlate.valid_until && (
-              <p className="text-[10px] text-slate-600 text-center">
-                Autorizimi skadon më {formatDate(qrPlate.valid_until)}
-              </p>
-            )}
+            {qrPlate.valid_until ? (
+              <p className="text-center text-[10px] text-slate-600">Autorizimi skadon më {formatDate(qrPlate.valid_until)}</p>
+            ) : null}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

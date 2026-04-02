@@ -85,3 +85,79 @@ export async function updateZoneConfig(_prevState, formData) {
   revalidatePath('/admin/dashboard')
   return { success: 'Konfigurimi i zonës u ruajt.' }
 }
+
+export async function updateNotificationPreferences(_prevState, formData) {
+  const supabase = await createServerSupabaseClient()
+  const { profile } = await requireRole(supabase, [ROLES.SUPER_ADMIN, ROLES.MANAGER, ROLES.POLICE, ROLES.CITIZEN])
+
+  const emailEnabled = formData.get('email_enabled') === 'on'
+  const pushEnabled = formData.get('push_enabled') === 'on'
+  const digestFrequency = formData.get('digest_frequency')?.toString() ?? 'instant'
+
+  if (!['instant', 'daily', 'weekly'].includes(digestFrequency)) {
+    return { error: 'Frekuenca e njoftimeve nuk është e vlefshme.' }
+  }
+
+  const { error } = await supabase
+    .from('app_notification_preferences')
+    .upsert({
+      profile_id: profile.id,
+      email_enabled: emailEnabled,
+      push_enabled: pushEnabled,
+      digest_frequency: digestFrequency,
+    })
+
+  if (error) return { error: 'Ruajtja e preferencave dështoi. Provo përsëri.' }
+
+  if (profile.role === ROLES.CITIZEN) {
+    revalidatePath('/citizen/dashboard')
+  } else {
+    revalidatePath('/admin/cilesimet')
+    revalidatePath('/admin/dashboard')
+  }
+
+  return { success: 'Preferencat e njoftimeve u ruajtën.' }
+}
+
+export async function updateDeliverySettings(_prevState, formData) {
+  const supabase = await createServerSupabaseClient()
+  await requireRole(supabase, [ROLES.SUPER_ADMIN])
+
+  const emailNotificationsEnabled = formData.get('email_notifications_enabled') === 'on'
+  const pushNotificationsEnabled = formData.get('push_notifications_enabled') === 'on'
+  const senderName = formData.get('sender_name')?.toString().trim() || null
+  const senderEmail = formData.get('sender_email')?.toString().trim() || null
+  const replyToEmail = formData.get('reply_to_email')?.toString().trim() || null
+  const footerSignature = formData.get('footer_signature')?.toString().trim() || null
+
+  if (senderEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail)) {
+    return { error: 'Email-i i dërguesit nuk është i vlefshëm.' }
+  }
+
+  if (replyToEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(replyToEmail)) {
+    return { error: 'Reply-to email nuk është i vlefshëm.' }
+  }
+
+  const service = createServiceSupabaseClient()
+  const { data: existing } = await service.from('app_delivery_settings').select('id').limit(1).maybeSingle()
+
+  const payload = {
+    email_notifications_enabled: emailNotificationsEnabled,
+    push_notifications_enabled: pushNotificationsEnabled,
+    sender_name: senderName,
+    sender_email: senderEmail,
+    reply_to_email: replyToEmail,
+    footer_signature: footerSignature,
+  }
+
+  const { error } = existing?.id
+    ? await service.from('app_delivery_settings').update(payload).eq('id', existing.id)
+    : await service.from('app_delivery_settings').insert(payload)
+
+  if (error) return { error: 'Ruajtja e konfigurimit të email-it dështoi. Provo përsëri.' }
+
+  revalidatePath('/admin/cilesimet')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/citizen/dashboard')
+  return { success: 'Konfigurimi i email-it u ruajt.' }
+}

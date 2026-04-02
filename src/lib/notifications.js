@@ -1,4 +1,5 @@
 import { createServiceSupabaseClient } from '@/lib/supabase/service'
+import { buildNotificationEmail, isResendConfigured, sendTransactionalEmail } from '@/lib/email'
 
 export const REPORT_CATEGORY_LABELS = {
   ndricim: 'Ndricim',
@@ -110,7 +111,7 @@ async function getNotificationPreferences(profileId) {
   const service = createServiceSupabaseClient()
   const { data, error } = await service
     .from('app_notification_preferences')
-    .select('email_enabled, push_enabled')
+    .select('email_enabled, push_enabled, digest_frequency')
     .eq('profile_id', profileId)
     .maybeSingle()
 
@@ -119,14 +120,40 @@ async function getNotificationPreferences(profileId) {
   }
 
   return {
+    digestFrequency: data?.digest_frequency ?? 'instant',
     emailEnabled: data?.email_enabled ?? false,
     pushEnabled: data?.push_enabled ?? false,
   }
 }
 
-function getDeliveryStatus(preferences) {
-  const emailConfigured = Boolean(process.env.NOTIFICATIONS_EMAIL_FROM)
+export async function getDeliverySettings() {
+  const service = createServiceSupabaseClient()
+  const { data, error } = await service
+    .from('app_delivery_settings')
+    .select('email_notifications_enabled, push_notifications_enabled, sender_name, sender_email, reply_to_email, footer_signature')
+    .limit(1)
+    .maybeSingle()
+
+  if (error && !isMissingNotificationsTable(error) && !error.message?.includes('app_delivery_settings')) {
+    throw error
+  }
+
+  return {
+    emailNotificationsEnabled: data?.email_notifications_enabled ?? false,
+    pushNotificationsEnabled: data?.push_notifications_enabled ?? false,
+    senderName: data?.sender_name ?? null,
+    senderEmail: data?.sender_email ?? null,
+    replyToEmail: data?.reply_to_email ?? null,
+    footerSignature: data?.footer_signature ?? null,
+  }
+}
+
+async function getDeliveryStatus(preferences) {
+  const deliverySettings = await getDeliverySettings()
+  const emailConfigured = Boolean((process.env.NOTIFICATIONS_EMAIL_FROM || deliverySettings.senderEmail) && isResendConfigured())
+    && deliverySettings.emailNotificationsEnabled
   const pushConfigured = Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY)
+    && deliverySettings.pushNotificationsEnabled
 
   const channelsRequested = {
     in_app: true,
@@ -141,6 +168,80 @@ function getDeliveryStatus(preferences) {
   }
 
   return { channelsRequested, channelsStatus }
+}
+
+async function sendEmailForNotification({
+  channelsRequested,
+  deliverySettings,
+  notificationId,
+  recipientId,
+  service,
+  title,
+  body,
+  href,
+}) {
+  if (!recipientId || !channelsRequested.email) return
+
+  const from = process.env.NOTIFICATIONS_EMAIL_FROM || deliverySettings.senderEmail
+  if (!from || !deliverySettings.emailNotificationsEnabled || !isResendConfigured()) return
+
+  const { data: authUserData, error: authUserError } = await service.auth.admin.getUserById(recipientId)
+  if (authUserError || !authUserData?.user?.email) {
+    await service
+      .from('app_notifications')
+      .update({
+        channels_status: {
+          in_app: 'ready',
+          email: 'missing_recipient_email',
+          push: channelsRequested.push ? 'pending_provider' : 'disabled',
+        },
+      })
+      .eq('id', notificationId)
+    return
+  }
+
+  const recipientEmail = authUserData.user.email
+  const recipientName = authUserData.user.user_metadata?.full_name ?? authUserData.user.email
+  const emailPayload = buildNotificationEmail({
+    body,
+    footerSignature: deliverySettings.footerSignature,
+    href,
+    recipientName,
+    title,
+  })
+
+  try {
+    await sendTransactionalEmail({
+      from,
+      html: emailPayload.html,
+      replyTo: deliverySettings.replyToEmail,
+      subject: title,
+      text: emailPayload.text,
+      to: recipientEmail,
+    })
+
+    await service
+      .from('app_notifications')
+      .update({
+        channels_status: {
+          in_app: 'ready',
+          email: 'sent',
+          push: channelsRequested.push ? 'pending_provider' : 'disabled',
+        },
+      })
+      .eq('id', notificationId)
+  } catch (error) {
+    await service
+      .from('app_notifications')
+      .update({
+        channels_status: {
+          in_app: 'ready',
+          email: `failed:${error instanceof Error ? error.message : 'unknown'}`,
+          push: channelsRequested.push ? 'pending_provider' : 'disabled',
+        },
+      })
+      .eq('id', notificationId)
+  }
 }
 
 function normalizeDbNotification(row, audience) {
@@ -455,13 +556,14 @@ export async function createNotification({
   tone = 'blue',
 }) {
   const service = createServiceSupabaseClient()
+  const deliverySettings = await getDeliverySettings()
   let channelsRequested = DEFAULT_CHANNELS_REQUESTED
   let channelsStatus = DEFAULT_CHANNELS_STATUS
 
   if (recipientId) {
     try {
       const preferences = await getNotificationPreferences(recipientId)
-      const delivery = getDeliveryStatus(preferences)
+      const delivery = await getDeliveryStatus(preferences)
       channelsRequested = delivery.channelsRequested
       channelsStatus = delivery.channelsStatus
     } catch (error) {
@@ -469,7 +571,7 @@ export async function createNotification({
     }
   }
 
-  const { error } = await service
+  const { data, error } = await service
     .from('app_notifications')
     .insert({
       actor_id: actorId,
@@ -485,8 +587,23 @@ export async function createNotification({
       title,
       tone,
     })
+    .select('id')
+    .single()
 
   if (error && !isMissingNotificationsTable(error)) {
     throw error
+  }
+
+  if (data?.id) {
+    await sendEmailForNotification({
+      body,
+      channelsRequested,
+      deliverySettings,
+      href,
+      notificationId: data.id,
+      recipientId,
+      service,
+      title,
+    })
   }
 }
