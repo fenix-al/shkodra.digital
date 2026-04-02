@@ -1,10 +1,12 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { requireRole } from '@/lib/auth/roles'
 import { ROLES } from '@/lib/auth/roles'
+import { getCitizenNotifications } from '@/lib/notifications'
 import { redirect } from 'next/navigation'
 import { Activity, LayoutDashboard, AlertTriangle } from 'lucide-react'
 import Link from 'next/link'
 import LogoutButton from '@/components/shared/LogoutButton'
+import CitizenBell from '@/components/citizen/CitizenBell'
 
 export const metadata = {
   title: 'Shkodra.digital',
@@ -14,12 +16,16 @@ export default async function CitizenLayout({ children }) {
   const supabase = await createServerSupabaseClient()
 
   let profile
+  let user
   try {
     const session = await requireRole(supabase, [ROLES.CITIZEN])
+    user = session.user
     profile = session.profile
   } catch {
     redirect('/login')
   }
+
+  const { items: notifications, unreadCount } = await getCitizenNotifications(supabase, profile.id, { limit: 6 })
 
   return (
     <div className="min-h-screen bg-[#030712] text-slate-100 flex flex-col">
@@ -35,6 +41,7 @@ export default async function CitizenLayout({ children }) {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <CitizenBell currentUserId={user.id} notificationCount={unreadCount} notifications={notifications} />
           <span className="text-xs text-slate-500 hidden sm:block">{profile.full_name ?? ''}</span>
           <LogoutButton compact />
         </div>

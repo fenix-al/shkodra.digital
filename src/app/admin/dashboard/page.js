@@ -141,7 +141,7 @@ export default async function AdminDashboardPage() {
                     <div className="w-full flex-1 flex items-end">
                       <div
                         className="w-full rounded-t-2xl bg-gradient-to-t from-blue-400 to-emerald-400 shadow-[0_10px_30px_rgba(52,211,153,0.18)]"
-                        style={{ height: `${Math.max(10, (item.count / reportStats.weeklyPeak) * 100)}%` }}
+                        style={{ height: `${Math.max(12, Math.round((item.count / reportStats.weeklyPeak) * 160))}px` }}
                       />
                     </div>
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{item.label}</span>

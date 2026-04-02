@@ -17,6 +17,7 @@ import {
   TimerReset,
   X,
 } from 'lucide-react'
+import { updateReportStatus } from '@/actions/reports'
 import { cx } from '@/lib/cx'
 import type { GeoReport } from './ReportsGeoMapCanvas'
 
@@ -121,6 +122,17 @@ const PLAYBACK_OPTIONS: { value: PlaybackMode; label: string }[] = [
   { value: 'day', label: 'Playback ditor' },
   { value: 'week', label: 'Playback javor' },
 ]
+
+const QUICK_STATUS_ACTIONS: Partial<Record<ReportStatus, { value: ReportStatus; label: string; className: string }[]>> = {
+  hapur: [
+    { value: 'në_shqyrtim', label: 'Merr ne shqyrtim', className: 'border-amber-500/20 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15' },
+    { value: 'refuzuar', label: 'Refuzo', className: 'border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]' },
+  ],
+  në_shqyrtim: [
+    { value: 'zgjidhur', label: 'Sheno si zgjidhur', className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15' },
+    { value: 'refuzuar', label: 'Refuzo', className: 'border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.06]' },
+  ],
+}
 
 function escapeHtml(value: string | number | null | undefined) {
   return String(value ?? '')
@@ -283,6 +295,7 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
   const [selectedId, setSelectedId] = useState<string | null>(geolocatedReports[0]?.id ?? null)
   const [focusNonce, setFocusNonce] = useState(0)
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null)
+  const [pendingStatusId, setPendingStatusId] = useState<string | null>(null)
 
   const filteredReports = useMemo(
     () =>
@@ -404,6 +417,15 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
     () => Math.max(1, ...playbackFrameSummary.map((frame) => frame.added)),
     [playbackFrameSummary],
   )
+
+  async function handleQuickStatusChange(reportId: string, nextStatus: ReportStatus) {
+    setPendingStatusId(reportId)
+    try {
+      await updateReportStatus(reportId, nextStatus)
+    } finally {
+      setPendingStatusId((current) => (current === reportId ? null : current))
+    }
+  }
 
   function exportPlaybackPresentation() {
     if (playbackMode === 'off' || playbackFrameSummary.length === 0) return
@@ -1178,7 +1200,29 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
                   <div className="rounded-2xl border border-white/5 bg-black/20 p-3"><p className="text-slate-500">Statusi</p><p className="mt-1 font-semibold text-slate-200">{STATUS_LABELS[selectedReport.status]}</p></div>
                   <div className="rounded-2xl border border-white/5 bg-black/20 p-3"><p className="text-slate-500">Data</p><p className="mt-1 font-semibold text-slate-200">{formatDate(selectedReport.created_at)}</p></div>
                   <div className="rounded-2xl border border-white/5 bg-black/20 p-3"><p className="text-slate-500">Raportuar nga</p><p className="mt-1 font-semibold text-slate-200">{selectedReport.reporter_name ?? 'Anonim'}</p></div>
-                  <div className="rounded-2xl border border-white/5 bg-black/20 p-3"><p className="text-slate-500">Media</p><p className="mt-1 font-semibold text-slate-200">{selectedReport.photo_url ? 'Ka foto' : 'Pa foto'}</p></div>
+                  <div className="rounded-2xl border border-white/5 bg-black/20 p-3">
+                    <p className="text-slate-500">Veprime te shpejta</p>
+                    {QUICK_STATUS_ACTIONS[selectedReport.status]?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {QUICK_STATUS_ACTIONS[selectedReport.status]!.map((action) => (
+                          <button
+                            key={action.value}
+                            type="button"
+                            disabled={pendingStatusId === selectedReport.id}
+                            onClick={() => handleQuickStatusChange(selectedReport.id, action.value)}
+                            className={cx(
+                              'inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50',
+                              action.className,
+                            )}
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1 font-semibold text-slate-200">Nuk ka veprime te tjera</p>
+                    )}
+                  </div>
                   <div className="col-span-2 rounded-2xl border border-white/5 bg-black/20 p-3"><p className="text-slate-500">Koordinatat</p><p className="mt-1 font-mono font-semibold text-slate-200">{selectedReport.latitude.toFixed(5)}, {selectedReport.longitude.toFixed(5)}</p></div>
                 </div>
                 {selectedReport.photo_url && (

@@ -716,7 +716,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
               {weeklyTrend.map((item) => (
                 <div key={item.key} className="flex-1 flex flex-col items-center gap-2">
                   <div className="w-full flex-1 flex items-end">
-                    <div className="w-full rounded-t-2xl bg-gradient-to-t from-blue-400 to-emerald-400 shadow-[0_8px_25px_rgba(52,211,153,0.16)]" style={{ height: `${Math.max(10, (item.count / weeklyPeak) * 100)}%` }} />
+                    <div className="w-full rounded-t-2xl bg-gradient-to-t from-blue-400 to-emerald-400 shadow-[0_8px_25px_rgba(52,211,153,0.16)]" style={{ height: `${Math.max(12, Math.round((item.count / weeklyPeak) * 160))}px` }} />
                   </div>
                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{item.label}</span>
                   <span className="text-xs text-slate-300">{item.count}</span>
