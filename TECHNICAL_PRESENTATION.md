@@ -50,6 +50,11 @@ Main tables:
 - `app_notification_preferences`
 - `app_delivery_settings`
 
+Important `citizen_reports` operational extensions:
+- `follow_up_count`
+- `last_follow_up_at`
+- `last_follow_up_note`
+
 ### 3.3 Security model
 - Supabase RLS on protected tables
 - Service-role access used only in server-side code
@@ -65,6 +70,7 @@ Main tables:
 - report submission
 - report photo upload
 - geolocation
+- unresolved report follow-up after cooldown
 - notification bell
 - notification preferences
 
@@ -73,6 +79,7 @@ Main tables:
 - reports table with filters
 - exports: CSV / Excel / PDF
 - interactive geospatial workspace
+- overdue / neglected report handling
 - notification bell
 - settings page
 - email delivery configuration
@@ -93,6 +100,10 @@ Current live areas:
 - admin report map
 - admin report statistics refresh
 - occupancy tracking
+
+Current resiliency pattern:
+- Supabase Realtime subscriptions for immediate updates
+- lightweight client polling fallback on admin reports/dashboard to avoid stale UI when a realtime event is missed
 
 Required tables enabled for realtime:
 - `scan_logs`
@@ -141,12 +152,21 @@ The report workspace supports:
 - search and filtering
 - quick status actions
 - priority derivation
+- overdue / `prapambetur` derivation from follow-up count
 - map clustering
 - heatmap
 - playback mode
 - studio mode
 - timeline chart
 - map-to-table synchronization
+- citizen-to-admin escalation flow for unresolved reports
+
+Overdue flow:
+1. citizen opens an unresolved report
+2. after 5 hours, citizen can send a follow-up reminder
+3. `follow_up_count` is incremented
+4. report becomes `prapambetur`
+5. admin sees it with elevated priority, separate filtering, and map emphasis
 
 ## 9. Deployment and ops considerations
 - environment variables must be configured for Supabase and Resend

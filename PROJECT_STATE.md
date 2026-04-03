@@ -1,11 +1,11 @@
 # PROJECT STATE - SHKODRA.DIGITAL
-Last updated: 2026-04-02
-Current phase: Digital city operations platform - reporting, realtime, notifications, email delivery foundation
+Last updated: 2026-04-03
+Current phase: Digital city operations platform - reporting, overdue follow-ups, realtime, notifications, email delivery foundation
 
 ## Snapshot
 - Core access-control platform is operational for admin, police, and citizen roles.
 - Citizen reporting is operational with photo upload, geolocation, Supabase storage, and admin review flow.
-- Admin reporting workspace is operational with filters, exports, interactive map, clustering, heatmap, playback, and realtime updates.
+- Admin reporting workspace is operational with filters, exports, interactive map, clustering, heatmap, playback, overdue highlighting, and realtime updates.
 - Notifications are operational in-app for admin and citizen, with unread/read state, bell UI, realtime updates, and DB persistence.
 - Email delivery foundation is operational with Resend integration, notification preferences, and delivery settings.
 
@@ -15,6 +15,7 @@ Current phase: Digital city operations platform - reporting, realtime, notificat
 - Admin dashboard, authorizations, users, settings, analytics
 - Police QR scanner and zone occupancy flow
 - Citizen dashboard, QR access, report submission
+- Citizen unresolved-report follow-up flow with 5-hour cooldown
 - Report photo upload hardening and cleanup logic
 - Admin reports table with filters, exports, and quick actions
 - Interactive map with:
@@ -24,11 +25,14 @@ Current phase: Digital city operations platform - reporting, realtime, notificat
   - timeline chart
   - studio mode
   - live selection sync from table
+  - overdue / `prapambetur` filtering
+  - orange pulsing map marker for overdue reports
 - Realtime reports:
   - table updates automatically
   - map pins update automatically
   - dashboard report stats refresh automatically
   - report status changes reflect without manual refresh
+  - periodic sync fallback for admin reports workspace/dashboard
 - Notifications system:
   - `app_notifications`
   - `app_notification_preferences`
@@ -43,6 +47,10 @@ Current phase: Digital city operations platform - reporting, realtime, notificat
 ## Database / Supabase status
 - `app_notifications` migration applied
 - `app_delivery_settings` migration created and should be applied in Supabase
+- `report_followups` migration created and should be applied in Supabase:
+  - `follow_up_count`
+  - `last_follow_up_at`
+  - `last_follow_up_note`
 - Realtime enabled for:
   - `citizen_reports`
   - `app_notifications`
@@ -50,11 +58,13 @@ Current phase: Digital city operations platform - reporting, realtime, notificat
 
 ## Current technical focus
 - Stabilize deliverability for the first outgoing report email
+- Keep overdue-report realtime flow stable in admin views
 - Improve sender reputation with SPF/DKIM/DMARC and warm-up
 - Prepare for mobile push notifications and neighborhood manager workflow
 
 ## Open operational tasks
 - Apply `supabase/migrations/20260402_app_delivery_settings.sql`
+- Apply `supabase/migrations/20260403_report_followups.sql`
 - Confirm `.env.local` and production envs include:
   - `RESEND_API_KEY`
   - `NOTIFICATIONS_EMAIL_FROM`
@@ -71,12 +81,16 @@ Current phase: Digital city operations platform - reporting, realtime, notificat
 
 ## Key files
 - `src/actions/reports.js`
+- `src/lib/report-priority.js`
 - `src/lib/notifications.js`
 - `src/lib/email.js`
 - `src/components/admin/ReportsGeoMap.tsx`
+- `src/components/admin/ReportsWorkspace.tsx`
 - `src/components/admin/ReportsTable.tsx`
+- `src/components/admin/AdminReportsRealtimeRefresh.tsx`
 - `src/components/admin/AdminShell.tsx`
 - `src/components/citizen/CitizenBell.tsx`
+- `src/app/citizen/dashboard/CitizenDashboardClient.tsx`
 - `src/components/shared/NotificationPreferencesCard.tsx`
 - `src/components/admin/AccountSettingsForm.tsx`
 
