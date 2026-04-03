@@ -19,12 +19,13 @@ import {
 } from 'lucide-react'
 import { updateReportStatus } from '@/actions/reports'
 import { cx } from '@/lib/cx'
+import { getReportPriority } from '@/lib/report-priority'
 import type { GeoReport } from './ReportsGeoMapCanvas'
 
 type ReportStatus = 'hapur' | 'në_shqyrtim' | 'zgjidhur' | 'refuzuar'
 type StatusFilter = 'all' | ReportStatus
 type CategoryFilter = 'all' | 'ndricim' | 'kanalizim' | 'rruge' | 'mbeturina' | 'akses' | 'tjeter'
-type MediaFilter = 'all' | 'with_photo' | 'without_photo'
+type PriorityFilter = 'all' | 'overdue' | 'urgent' | 'medium' | 'normal'
 type MapMode = 'cluster' | 'hybrid' | 'heatmap'
 type DateFilter = 'all' | '24h' | '7d' | '30d' | '90d'
 type PlaybackMode = 'off' | 'day' | 'week'
@@ -39,6 +40,8 @@ interface Report {
   longitude: number | null
   created_at: string
   reporter_name: string | null
+  follow_up_count?: number | null
+  last_follow_up_at?: string | null
 }
 
 interface Props {
@@ -97,10 +100,12 @@ const CATEGORY_OPTIONS: { value: CategoryFilter; label: string }[] = [
   { value: 'tjeter', label: 'Tjeter' },
 ]
 
-const MEDIA_OPTIONS: { value: MediaFilter; label: string }[] = [
-  { value: 'all', label: 'Te gjitha raportimet' },
-  { value: 'with_photo', label: 'Vetem me foto' },
-  { value: 'without_photo', label: 'Vetem pa foto' },
+const PRIORITY_OPTIONS: { value: PriorityFilter; label: string }[] = [
+  { value: 'all', label: 'Te gjitha nivelet' },
+  { value: 'overdue', label: 'Prapambetur' },
+  { value: 'urgent', label: 'Urgjent' },
+  { value: 'medium', label: 'Mesatar' },
+  { value: 'normal', label: 'Normal' },
 ]
 
 const MAP_MODE_OPTIONS: { value: MapMode; label: string }[] = [
@@ -234,26 +239,17 @@ function getPlaybackFrames(reports: GeoReport[], mode: PlaybackMode) {
 }
 
 function getPriority(report: GeoReport) {
-  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
-    return { label: 'Mbyllur', borderClass: 'border-slate-500/20 bg-slate-500/10 text-slate-300' }
+  const priority = getReportPriority(report)
+  return {
+    label: priority.label,
+    borderClass: priority.badgeClass,
+    level: priority.level,
   }
-
-  const ageHours = Math.max(0, (Date.now() - new Date(report.created_at).getTime()) / (1000 * 60 * 60))
-  let score = 1
-  if (report.category === 'akses') score += 2
-  if (report.category === 'ndricim') score += 1
-  if (report.photo_url) score += 1
-  if (ageHours >= 72) score += 2
-  else if (ageHours >= 24) score += 1
-  if (report.status === 'në_shqyrtim') score += 1
-
-  if (score >= 5) return { label: 'Urgjent', borderClass: 'border-rose-500/20 bg-rose-500/10 text-rose-300' }
-  if (score >= 3) return { label: 'Mesatar', borderClass: 'border-amber-500/20 bg-amber-500/10 text-amber-300' }
-  return { label: 'Normal', borderClass: 'border-sky-500/20 bg-sky-500/10 text-sky-300' }
 }
 
 function getHeatIntensity(report: GeoReport) {
   if (report.status === 'zgjidhur' || report.status === 'refuzuar') return 0.2
+  if (Number(report.follow_up_count ?? 0) > 0) return 1
 
   let intensity = 0.35
   if (report.category === 'akses') intensity += 0.25
@@ -286,7 +282,7 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
-  const [mediaFilter, setMediaFilter] = useState<MediaFilter>('all')
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
   const [dateFilter, setDateFilter] = useState<DateFilter>('30d')
   const [mapMode, setMapMode] = useState<MapMode>('hybrid')
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>('off')
@@ -302,12 +298,11 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
       geolocatedReports.filter((report) => {
         if (statusFilter !== 'all' && report.status !== statusFilter) return false
         if (categoryFilter !== 'all' && report.category !== categoryFilter) return false
-        if (mediaFilter === 'with_photo' && !report.photo_url) return false
-        if (mediaFilter === 'without_photo' && report.photo_url) return false
+        if (priorityFilter !== 'all' && getPriority(report).level !== priorityFilter) return false
         if (!matchesDateWindow(report.created_at, dateFilter)) return false
         return true
       }),
-    [categoryFilter, dateFilter, geolocatedReports, mediaFilter, statusFilter],
+    [categoryFilter, dateFilter, geolocatedReports, priorityFilter, statusFilter],
   )
 
   const playbackFrames = useMemo(() => getPlaybackFrames(filteredReports, playbackMode), [filteredReports, playbackMode])
@@ -1060,8 +1055,8 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
           <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as CategoryFilter)} className="rounded-2xl border border-white/10 bg-[#050914] px-4 py-3 text-sm text-slate-200 focus:outline-none">
             {CATEGORY_OPTIONS.map((option) => <option key={option.value} value={option.value} className="bg-slate-950">{option.label}</option>)}
           </select>
-          <select value={mediaFilter} onChange={(e) => setMediaFilter(e.target.value as MediaFilter)} className="rounded-2xl border border-white/10 bg-[#050914] px-4 py-3 text-sm text-slate-200 focus:outline-none">
-            {MEDIA_OPTIONS.map((option) => <option key={option.value} value={option.value} className="bg-slate-950">{option.label}</option>)}
+          <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)} className="rounded-2xl border border-white/10 bg-[#050914] px-4 py-3 text-sm text-slate-200 focus:outline-none">
+            {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value} className="bg-slate-950">{option.label}</option>)}
           </select>
           <label className="flex items-center gap-2 rounded-2xl border border-white/10 bg-[#050914] px-4 py-3">
             <CalendarRange size={16} className="text-slate-500" />
@@ -1072,7 +1067,7 @@ export default function ReportsGeoMap({ reports, externalSelection = null }: Pro
           <select value={mapMode} onChange={(e) => setMapMode(e.target.value as MapMode)} className="rounded-2xl border border-white/10 bg-[#050914] px-4 py-3 text-sm text-slate-200 focus:outline-none">
             {MAP_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value} className="bg-slate-950">{option.label}</option>)}
           </select>
-          <button type="button" onClick={() => { setStatusFilter('all'); setCategoryFilter('all'); setMediaFilter('all'); setDateFilter('30d'); setMapMode('hybrid'); setPlaybackMode('off'); setPlaybackIndex(0); setIsPlaying(false) }} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-slate-300 transition-all hover:bg-white/5">Pastro filtrat</button>
+          <button type="button" onClick={() => { setStatusFilter('all'); setCategoryFilter('all'); setPriorityFilter('all'); setDateFilter('30d'); setMapMode('hybrid'); setPlaybackMode('off'); setPlaybackIndex(0); setIsPlaying(false) }} className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-semibold text-slate-300 transition-all hover:bg-white/5">Pastro filtrat</button>
         </div>
       </div>
 

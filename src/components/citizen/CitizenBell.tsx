@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
-import { Bell, Camera, Car, CheckCircle2, Clock3, FileText, ShieldCheck, Siren, XCircle } from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import { Bell, Car, CheckCircle2, Clock3, FileText, ShieldCheck, Siren, XCircle } from 'lucide-react'
 import { markNotificationRead } from '@/actions/notifications'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { cx } from '@/lib/cx'
@@ -12,12 +13,12 @@ type NotificationIcon = 'report' | 'camera' | 'car' | 'check' | 'clock' | 'shiel
 
 interface NotificationItem {
   id: string
-  title: string
-  body: string
-  createdAt: string
+  title?: string
+  body?: string
+  createdAt?: string
   href?: string | null
-  tone: NotificationTone
-  icon: NotificationIcon
+  tone?: NotificationTone
+  icon?: NotificationIcon
   readAt?: string | null
   isUnread?: boolean
 }
@@ -36,12 +37,10 @@ const TONE_DOT = {
   slate: 'bg-slate-400',
 }
 
-function NotificationGlyph({ icon }: { icon: NotificationIcon }) {
+function NotificationGlyph({ icon = 'report' }: { icon?: NotificationIcon }) {
   const shared = { size: 14, className: 'text-slate-200' }
 
   switch (icon) {
-    case 'camera':
-      return <Camera {...shared} />
     case 'car':
       return <Car {...shared} />
     case 'check':
@@ -54,13 +53,14 @@ function NotificationGlyph({ icon }: { icon: NotificationIcon }) {
       return <XCircle {...shared} />
     case 'alert':
       return <Siren {...shared} />
-    case 'report':
     default:
       return <FileText {...shared} />
   }
 }
 
-function formatRelativeDate(iso: string) {
+function formatRelativeDate(iso?: string) {
+  if (!iso) return 'Tani'
+
   const target = new Date(iso)
   const diffMs = Date.now() - target.getTime()
   const diffMinutes = Math.max(1, Math.round(diffMs / 60000))
@@ -79,33 +79,34 @@ function formatRelativeDate(iso: string) {
 
 function normalizeRealtimeNotification(row: {
   id: string
-  title: string
-  body: string
-  created_at: string
+  title?: string
+  body?: string
+  created_at?: string
   href?: string | null
-  tone: NotificationTone
-  icon: NotificationIcon
+  tone?: NotificationTone
+  icon?: NotificationIcon
   read_at?: string | null
 }) {
   return {
     id: row.id,
-    title: row.title,
-    body: row.body,
+    title: row.title ?? 'Njoftim i ri',
+    body: row.body ?? 'Keni nje perditesim te ri.',
     createdAt: row.created_at,
     href: row.href ?? '/citizen/dashboard',
-    tone: row.tone,
-    icon: row.icon,
+    tone: row.tone ?? 'blue',
+    icon: row.icon ?? 'report',
     readAt: row.read_at ?? null,
     isUnread: !row.read_at,
   } satisfies NotificationItem
 }
 
 export default function CitizenBell({ currentUserId, notificationCount = 0, notifications = [] }: Props) {
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [liveNotifications, setLiveNotifications] = useState<NotificationItem[]>([])
   const [readOverrides, setReadOverrides] = useState<Record<string, string>>({})
   const [pendingIds, setPendingIds] = useState<string[]>([])
-  const [isPending, startTransition] = useTransition()
+  const [, startTransition] = useTransition()
   const dropdownRef = useRef<HTMLDivElement | null>(null)
 
   const baseUnreadIds = useMemo(
@@ -123,7 +124,7 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
     }
 
     return [...items.values()]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
       .slice(0, 6)
   }, [liveNotifications, notifications, readOverrides])
 
@@ -168,7 +169,7 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
               return current
             }
 
-            return [nextNotification, ...current].slice(0, 6)
+            return [nextNotification, ...current].slice(0, 20)
           })
         },
       )
@@ -218,8 +219,13 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
     <div className="relative" ref={dropdownRef}>
       <button
         type="button"
+        aria-label="Hape njoftimet"
         onClick={() => setOpen((current) => !current)}
-        className="relative inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-300 transition-all hover:bg-white/[0.07] hover:text-white active:scale-95"
+        className={`relative inline-flex h-10 w-10 items-center justify-center rounded-2xl border text-slate-300 transition-all active:scale-95 ${
+          pathname === '/citizen/njoftimet'
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+            : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.07] hover:text-white'
+        }`}
       >
         <Bell size={17} />
         {unreadCount > 0 ? (
@@ -234,7 +240,7 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
           <div className="flex items-center justify-between gap-3 border-b border-white/5 px-2 pb-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Njoftimet</p>
-              <h3 className="mt-1 text-sm font-semibold text-slate-100">Përditësime të shpejta</h3>
+              <h3 className="mt-1 text-sm font-semibold text-slate-100">Perditesimet e fundit</h3>
             </div>
             <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
               {unreadCount} te palexuara
@@ -245,7 +251,7 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
             {visibleNotifications.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-6 text-center">
                 <p className="text-sm font-semibold text-slate-300">Asnje njoftim ende</p>
-                <p className="mt-1 text-xs text-slate-500">Raportet dhe autorizimet do shfaqen ketu.</p>
+                <p className="mt-1 text-xs text-slate-500">Raportet dhe autorizimet do te shfaqen ketu.</p>
               </div>
             ) : (
               visibleNotifications.map((notification) => {
@@ -270,10 +276,10 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                              <p className="truncate text-sm font-semibold text-slate-100">{notification.title}</p>
-                              {unread ? <span className={cx('h-2 w-2 rounded-full', TONE_DOT[notification.tone])} /> : null}
+                              <p className="truncate text-sm font-semibold text-slate-100">{notification.title ?? 'Njoftim i ri'}</p>
+                              {unread ? <span className={cx('h-2 w-2 rounded-full', TONE_DOT[notification.tone ?? 'blue'])} /> : null}
                             </div>
-                            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">{notification.body}</p>
+                            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">{notification.body ?? 'Keni nje perditesim te ri.'}</p>
                           </div>
                           <span className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                             {formatRelativeDate(notification.createdAt)}
@@ -294,11 +300,11 @@ export default function CitizenBell({ currentUserId, notificationCount = 0, noti
           </div>
 
           <Link
-            href="/citizen/dashboard"
+            href="/citizen/njoftimet"
             onClick={() => setOpen(false)}
             className="mt-3 flex items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-bold uppercase tracking-widest text-slate-300 transition-all hover:bg-white/[0.06]"
           >
-            Hape panelin
+            Shiko te gjitha
           </Link>
         </div>
       ) : null}

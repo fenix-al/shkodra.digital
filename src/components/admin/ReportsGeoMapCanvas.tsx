@@ -14,6 +14,7 @@ import {
 } from 'react-leaflet'
 import MarkerClusterGroup from 'react-leaflet-cluster'
 import { cx } from '@/lib/cx'
+import { getReportPriority } from '@/lib/report-priority'
 
 type ReportStatus = 'hapur' | 'në_shqyrtim' | 'zgjidhur' | 'refuzuar'
 type MapMode = 'cluster' | 'hybrid' | 'heatmap'
@@ -28,6 +29,8 @@ export interface GeoReport {
   longitude: number
   created_at: string
   reporter_name: string | null
+  follow_up_count?: number | null
+  last_follow_up_at?: string | null
 }
 
 interface Props {
@@ -66,22 +69,7 @@ function formatDate(iso: string) {
 }
 
 function getPriority(report: GeoReport) {
-  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
-    return { label: 'Mbyllur', color: '#94a3b8' }
-  }
-
-  const ageHours = Math.max(0, (Date.now() - new Date(report.created_at).getTime()) / (1000 * 60 * 60))
-  let score = 1
-  if (report.category === 'akses') score += 2
-  if (report.category === 'ndricim') score += 1
-  if (report.photo_url) score += 1
-  if (ageHours >= 72) score += 2
-  else if (ageHours >= 24) score += 1
-  if (report.status === 'në_shqyrtim') score += 1
-
-  if (score >= 5) return { label: 'Urgjent', color: '#fb7185' }
-  if (score >= 3) return { label: 'Mesatar', color: '#f59e0b' }
-  return { label: 'Normal', color: '#38bdf8' }
+  return getReportPriority(report)
 }
 
 interface ClusterLike {
@@ -133,6 +121,7 @@ function MapViewport({ reports, selectedId, focusNonce }: { reports: GeoReport[]
 
 function getHeatIntensity(report: GeoReport) {
   if (report.status === 'zgjidhur' || report.status === 'refuzuar') return 0.2
+  if (Number(report.follow_up_count ?? 0) > 0) return 1
 
   let intensity = 0.35
   if (report.category === 'akses') intensity += 0.25
@@ -194,7 +183,7 @@ export default function ReportsGeoMapCanvas({ reports, selectedId, focusNonce, m
                 key={report.id}
                 center={[report.latitude, report.longitude]}
                 radius={selected ? 10 : 7}
-                pathOptions={{ color: '#ffffff', weight: selected ? 3 : 2, fillColor: priority.color, fillOpacity: 0.95 }}
+                pathOptions={{ color: '#ffffff', weight: selected ? 3 : 2, fillColor: priority.mapColor, fillOpacity: 0.95, className: priority.pulseClass }}
                 eventHandlers={{ click: () => onSelect(report.id) }}
               >
                 <Popup>
@@ -224,7 +213,7 @@ export default function ReportsGeoMapCanvas({ reports, selectedId, focusNonce, m
         <CircleMarker
           center={[selectedReport.latitude, selectedReport.longitude]}
           radius={11}
-          pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#22c55e', fillOpacity: 0.95 }}
+          pathOptions={{ color: '#ffffff', weight: 3, fillColor: getPriority(selectedReport).mapColor, fillOpacity: 0.95, className: getPriority(selectedReport).pulseClass }}
           eventHandlers={{ click: () => onSelect(selectedReport.id) }}
         >
           <Popup>

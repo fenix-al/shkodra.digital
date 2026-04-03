@@ -31,7 +31,9 @@ export async function markNotificationRead(notificationId) {
   }
 
   revalidatePath('/citizen/dashboard')
+  revalidatePath('/citizen/njoftimet')
   revalidatePath('/admin/dashboard')
+  revalidatePath('/admin/njoftimet')
   return { success: true }
 }
 
@@ -52,6 +54,8 @@ export async function markAllNotificationsRead() {
   }
 
   revalidatePath('/citizen/dashboard')
+  revalidatePath('/citizen/njoftimet')
   revalidatePath('/admin/dashboard')
+  revalidatePath('/admin/njoftimet')
   return { success: true }
 }

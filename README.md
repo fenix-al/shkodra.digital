@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Shkodra.digital
 
-## Getting Started
+Municipal operations platform for citizen reporting, access control, realtime oversight, notifications, and digital service workflows.
 
-First, run the development server:
+## Stack
+- Next.js 16
+- React 19
+- Tailwind CSS v4
+- Supabase
+- Resend
 
+## Run locally
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Main environment variables
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_QR_SECRET`
+- `RESEND_API_KEY`
+- `NOTIFICATIONS_EMAIL_FROM`
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Main docs
+- [Project State](./PROJECT_STATE.md)
+- [Working Memory](./WORKING_MEMORY.md)
+- [Technical Presentation](./TECHNICAL_PRESENTATION.md)
+- [Executive Presentation](./EXECUTIVE_PRESENTATION.md)
+- [Decisions Log](./DECISIONS.md)
+- [Agent Rules](./AGENTS.md)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Current platform coverage
+- Admin dashboard and operations
+- Citizen dashboard and reporting
+- Police scanner workflow
+- Realtime report tracking
+- In-app notifications
+- Email delivery foundation
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deployment notes
+- Apply Supabase migrations before production rollout
+- Enable realtime on required tables
+- Configure SPF, DKIM, and DMARC for email deliverability

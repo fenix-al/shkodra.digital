@@ -18,7 +18,7 @@ export default async function RaportetPage() {
 
   const { data: reports, error: reportsError } = await supabase
     .from('citizen_reports')
-    .select('id, category, description, status, photo_url, latitude, longitude, created_at, reporter_id')
+    .select('id, category, description, status, photo_url, latitude, longitude, created_at, reporter_id, follow_up_count, last_follow_up_at')
     .order('created_at', { ascending: false })
     .limit(100)
 

@@ -8,12 +8,17 @@ export default function AdminReportsRealtimeRefresh() {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const refreshTimeoutRef = useRef<number | null>(null)
+  const isPendingRef = useRef(false)
+
+  useEffect(() => {
+    isPendingRef.current = isPending
+  }, [isPending])
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient()
 
     const queueRefresh = () => {
-      if (refreshTimeoutRef.current !== null || isPending) return
+      if (refreshTimeoutRef.current !== null || isPendingRef.current) return
 
       refreshTimeoutRef.current = window.setTimeout(() => {
         refreshTimeoutRef.current = null
@@ -34,13 +39,20 @@ export default function AdminReportsRealtimeRefresh() {
       )
       .subscribe()
 
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        queueRefresh()
+      }
+    }, 5000)
+
     return () => {
       if (refreshTimeoutRef.current !== null) {
         window.clearTimeout(refreshTimeoutRef.current)
       }
-      supabase.removeChannel(channel)
+      window.clearInterval(intervalId)
+      void supabase.removeChannel(channel)
     }
-  }, [isPending, router, startTransition])
+  }, [router, startTransition])
 
   return null
 }

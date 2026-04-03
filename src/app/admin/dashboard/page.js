@@ -1,9 +1,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { ShieldCheck, Clock, Activity, ArrowUpRight, ChevronRight, Car, Flame, Camera, FileText } from 'lucide-react'
+import { ShieldCheck, Clock, Activity, ArrowUpRight, ChevronRight, Car, Flame, FileText } from 'lucide-react'
 import OccupancyRealtime from '@/components/admin/OccupancyRealtime'
 import AdminReportsRealtimeRefresh from '@/components/admin/AdminReportsRealtimeRefresh'
 import AnalyticsPanel from '@/components/admin/AnalyticsPanel'
-import NotificationsPanel from '@/components/shared/NotificationsPanel'
+import AdminDashboardDock from '@/components/admin/AdminDashboardDock'
+import ReportStatisticsChart from '@/components/admin/ReportStatisticsChart'
 import { getAdminNotifications } from '@/lib/notifications'
 
 export const metadata = {
@@ -12,7 +13,9 @@ export const metadata = {
 
 export default async function AdminDashboardPage() {
   const supabase = await createServerSupabaseClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   const now = new Date()
   const today = now.toISOString().split('T')[0]
@@ -28,7 +31,7 @@ export default async function AdminDashboardPage() {
     { data: recentLogs },
     { data: weekLogs },
     { data: reportRows },
-    { items: notifications, unreadCount: notificationsUnreadCount },
+    notificationsResult,
   ] = await Promise.all([
     supabase.from('scan_logs').select('*', { count: 'exact', head: true }).eq('action', 'ENTRY').gte('scanned_at', `${today}T00:00:00Z`),
     supabase.from('scan_logs').select('*', { count: 'exact', head: true }).eq('action', 'EXIT').gte('scanned_at', `${today}T00:00:00Z`),
@@ -38,37 +41,47 @@ export default async function AdminDashboardPage() {
     supabase.from('scan_logs').select('*', { count: 'exact', head: true }).gte('scanned_at', `${today}T00:00:00Z`),
     supabase.from('scan_logs').select('plate_id, action, scanned_at, scan_method, authorized_plates(plate_number)').order('scanned_at', { ascending: false }).limit(8),
     supabase.from('scan_logs').select('plate_id, action, scanned_at').gte('scanned_at', sevenDaysAgo).order('scanned_at', { ascending: true }),
-    supabase
-      .from('citizen_reports')
-      .select('id, category, status, photo_url, latitude, longitude, created_at')
-      .order('created_at', { ascending: false })
-      .limit(250),
+    supabase.from('citizen_reports').select('id, category, status, photo_url, latitude, longitude, created_at, follow_up_count, last_follow_up_at').order('created_at', { ascending: false }).limit(250),
     getAdminNotifications(supabase, user?.id ?? null, { limit: 6 }),
   ])
 
+  const notifications = notificationsResult.items
+  const notificationsUnreadCount = notificationsResult.unreadCount
   const occupancy = Math.max(0, (entries ?? 0) - (exits ?? 0))
   const capacity = zoneConfig?.capacity ?? 50
-  const zoneName = zoneConfig?.zone_name ?? 'Zona Zdralës'
+  const zoneName = zoneConfig?.zone_name ?? 'Zona Zdrales'
 
-  const hourlyMap = new Map()
-  for (let h = 0; h < 24; h++) hourlyMap.set(h, { hour: h, entries: 0, exits: 0 })
+  const dayLabels = ['Hen', 'Mar', 'Mer', 'Enj', 'Pre', 'Sht', 'Die']
+  const dailyTrend = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(now)
+    date.setUTCDate(now.getUTCDate() - (6 - index))
+    date.setUTCHours(0, 0, 0, 0)
+    const weekdayIndex = date.getUTCDay() === 0 ? 6 : date.getUTCDay() - 1
+    return {
+      key: date.toISOString().slice(0, 10),
+      label: dayLabels[weekdayIndex],
+      entries: 0,
+      exits: 0,
+    }
+  })
+  const dailyMap = new Map(dailyTrend.map((item) => [item.key, item]))
 
   let totalEntries7d = 0
   let totalExits7d = 0
 
   for (const log of weekLogs ?? []) {
-    const h = new Date(log.scanned_at).getHours()
-    const bucket = hourlyMap.get(h)
+    const key = new Date(log.scanned_at).toISOString().slice(0, 10)
+    const bucket = dailyMap.get(key)
+    if (!bucket) continue
     if (log.action === 'ENTRY') {
-      bucket.entries++
-      totalEntries7d++
+      bucket.entries += 1
+      totalEntries7d += 1
     }
     if (log.action === 'EXIT') {
-      bucket.exits++
-      totalExits7d++
+      bucket.exits += 1
+      totalExits7d += 1
     }
   }
-  const hourlyData = Array.from(hourlyMap.values())
 
   let avgStayMinutes = null
   const entryTimes = new Map()
@@ -90,77 +103,73 @@ export default async function AdminDashboardPage() {
 
   const reports = reportRows ?? []
   const reportStats = getReportAnalytics(reports)
+  const recentScans = (recentLogs ?? []).map((log) => ({
+    key: `${log.scanned_at}-${log.plate_id}`,
+    plateNumber: log.authorized_plates?.plate_number ?? '-',
+    action: log.action,
+    scanMethod: log.scan_method === 'QR' ? 'Skanim QR' : 'Manual',
+    timeLabel: `${String(new Date(log.scanned_at).getUTCHours()).padStart(2, '0')}:${String(new Date(log.scanned_at).getUTCMinutes()).padStart(2, '0')}`,
+  }))
 
   return (
     <div className="flex flex-col gap-6">
       <AdminReportsRealtimeRefresh />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        <StatCard label="Targa Aktive" value={activeCount ?? 0} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend="Të miratuara" positive />
-        <StatCard label="Kërkesa në Pritje" value={pendingCount ?? 0} icon={<Clock size={20} className="text-amber-400" />} trend="Presin miratim" />
-        <StatCard label="Kapaciteti i Zonës" value={`${occupancy}/${capacity}`} icon={<Car size={20} className="text-blue-400" />} trend={`${Math.round((occupancy / capacity) * 100)}% e zënë`} />
-        <StatCard label="Skanime Sot" value={scansToday ?? 0} icon={<Activity size={20} className="text-purple-400" />} trend="Hyrje + Dalje" positive />
-      </div>
-
-      <OccupancyRealtime initialOccupancy={occupancy} capacity={capacity} zoneName={zoneName} />
-
-      <section className="bg-[#050914]/80 backdrop-blur-2xl rounded-[28px] border border-white/5 overflow-hidden">
-        <div className="p-6 border-b border-white/5 flex items-center justify-between gap-4 flex-wrap">
+      <section className="overflow-hidden rounded-[28px] border border-white/5 bg-[#050914]/80 backdrop-blur-2xl">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 p-6">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Analitika e Raporteve</p>
-            <h2 className="text-lg font-black tracking-tight text-white mt-1">Prioriteti dhe tendenca e qytetarëve</h2>
+            <h2 className="mt-1 text-lg font-black tracking-tight text-white">Prioriteti dhe tendenca e qytetareve</h2>
           </div>
-          <a href="/admin/raportet" className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">
-            Hape panelin e plotë <ChevronRight size={12} />
+          <a href="/admin/raportet" className="flex items-center gap-1 text-xs text-emerald-400 transition-colors hover:text-emerald-300">
+            Hape panelin e plote <ChevronRight size={12} />
           </a>
         </div>
 
-        <div className="p-6 flex flex-col gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <StatCard label="Raporte Totale" value={reportStats.total} icon={<FileText size={20} className="text-blue-400" />} trend="Të regjistruara" positive={reportStats.total > 0} />
-            <StatCard label="Urgjente Aktive" value={reportStats.urgentOpen} icon={<Flame size={20} className="text-rose-400" />} trend="Kërkojnë reagim" positive={reportStats.urgentOpen > 0} />
-            <StatCard label="Me Foto" value={reportStats.withPhoto} icon={<Camera size={20} className="text-amber-400" />} trend="Prova vizuale" positive={reportStats.withPhoto > 0} />
-            <StatCard label="Të Zgjidhura" value={`${reportStats.resolvedRate}%`} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend={`${reportStats.resolved} raporte të mbyllura`} positive={reportStats.resolved > 0} />
+        <div className="flex flex-col gap-6 p-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Raporte Totale" value={reportStats.total} icon={<FileText size={20} className="text-blue-400" />} trend="Te regjistruara" positive={reportStats.total > 0} />
+            <StatCard label="Urgjente Aktive" value={reportStats.urgentOpen} icon={<Flame size={20} className="text-rose-400" />} trend="Kerkojne reagim" positive={reportStats.urgentOpen > 0} />
+            <StatCard label="Te Hapura" value={reportStats.openTotal} icon={<Flame size={20} className="text-amber-400" />} trend="Ne proces" positive={reportStats.openTotal > 0} />
+            <StatCard label="Te Zgjidhura" value={`${reportStats.resolvedRate}%`} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend={`${reportStats.resolved} raporte te mbyllura`} positive={reportStats.resolved > 0} />
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
-            <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-5">
-              <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_0.85fr]">
+            <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">7 ditët e fundit</p>
-                  <h3 className="text-sm font-semibold text-slate-200 mt-1">Volumi i raportimeve</h3>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">7 ditet e fundit</p>
+                  <h3 className="mt-1 text-base font-semibold text-slate-100">Volumi i raportimeve</h3>
+                  <p className="mt-1 text-xs text-slate-500">Linja tregon ritmin ditor te raporteve ne javen e fundit.</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-400">
                   Kulmi: {reportStats.weeklyPeak} raporte
                 </div>
               </div>
 
-              <div className="flex items-end gap-3 h-48">
-                {reportStats.weeklyTrend.map((item) => (
-                  <div key={item.key} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full flex-1 flex items-end">
-                      <div
-                        className="w-full rounded-t-2xl bg-gradient-to-t from-blue-400 to-emerald-400 shadow-[0_10px_30px_rgba(52,211,153,0.18)]"
-                        style={{ height: `${Math.max(12, Math.round((item.count / reportStats.weeklyPeak) * 160))}px` }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{item.label}</span>
-                    <span className="text-xs text-slate-300">{item.count}</span>
-                  </div>
-                ))}
-              </div>
+              <ReportStatisticsChart
+                weeklyTrend={reportStats.weeklyTrend}
+                weeklyOpenTrend={reportStats.weeklyOpenTrend}
+                weeklyResolvedTrend={reportStats.weeklyResolvedTrend}
+                totalReports={reportStats.total}
+                averagePerDay={Math.round((reportStats.total / Math.max(1, reportStats.weeklyTrend.length)) * 10) / 10}
+                totalOpen={reportStats.openTotal}
+                totalResolved={reportStats.resolved}
+                weeklyPeak={reportStats.weeklyPeak}
+              />
             </div>
 
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-5">
-              <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Ngarkesa operative</p>
-                  <h3 className="text-sm font-semibold text-slate-200 mt-1">Prioritetet aktive</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-slate-200">Prioritetet aktive</h3>
                 </div>
                 <Flame size={18} className="text-rose-400" />
               </div>
 
-              <div className="flex flex-col gap-3 mb-5">
+              <div className="mb-5 flex flex-col gap-3">
+                <PriorityRow label="Prapambetura" value={reportStats.overdueOpen} tone="orange" />
                 <PriorityRow label="Urgjente" value={reportStats.urgentOpen} tone="rose" />
                 <PriorityRow label="Mesatare" value={reportStats.mediumOpen} tone="amber" />
                 <PriorityRow label="Normale" value={reportStats.normalOpen} tone="blue" />
@@ -169,11 +178,11 @@ export default async function AdminDashboardPage() {
               <div className="space-y-3">
                 {reportStats.categorySummary.map((item) => (
                   <div key={item.value}>
-                    <div className="flex items-center justify-between text-xs mb-2">
-                      <span className="text-slate-300 font-semibold">{item.label}</span>
+                    <div className="mb-2 flex items-center justify-between text-xs">
+                      <span className="font-semibold text-slate-300">{item.label}</span>
                       <span className="text-slate-500">{item.count}</span>
                     </div>
-                    <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div className="h-2 overflow-hidden rounded-full bg-white/5">
                       <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-emerald-400" style={{ width: item.width }} />
                     </div>
                   </div>
@@ -184,55 +193,36 @@ export default async function AdminDashboardPage() {
         </div>
       </section>
 
-      <NotificationsPanel
-        title="Njoftimet operative"
-        subtitle="Raporte dhe kërkesa që kërkojnë veprim"
-        notifications={notifications}
-        unreadCount={notificationsUnreadCount}
-        emptyMessage="Kur të vijnë raportime të reja ose kërkesa në pritje, ato do të shfaqen këtu."
-        actionHref="/admin/raportet"
-        actionLabel="Hape panelin e raporteve"
-        enableReadActions
-      />
+      <section className="overflow-hidden rounded-[28px] border border-white/5 bg-[#050914]/80 backdrop-blur-2xl">
+        <div className="border-b border-white/5 p-6">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Pedonalja</p>
+          <h2 className="mt-1 text-lg font-black tracking-tight text-white">Skanimi i QR kodeve dhe targave te lejuara</h2>
+          <p className="mt-1 text-sm text-slate-500">Monitorimi operativ i hyrjeve, daljeve dhe kapacitetit te automjeteve me autorizim ne pedonale.</p>
+        </div>
 
-      <div className="bg-[#050914]/80 backdrop-blur-2xl rounded-[28px] border border-white/5 overflow-hidden">
-        <div className="p-6 border-b border-white/5 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-widest">Skanime të Fundit</h2>
-          <a href="/admin/autorizimet" className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors flex items-center gap-1">
-            Shiko të gjitha <ChevronRight size={12} />
-          </a>
+        <div className="flex flex-col gap-6 p-6">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Leje Aktive" value={activeCount ?? 0} icon={<ShieldCheck size={20} className="text-emerald-400" />} trend="Autorizime ne fuqi" positive />
+            <StatCard label="Kerkesa Ne Shqyrtim" value={pendingCount ?? 0} icon={<Clock size={20} className="text-amber-400" />} trend="Ne pritje te vendimit" />
+            <StatCard label="Kapaciteti Operativ" value={`${occupancy}/${capacity}`} icon={<Car size={20} className="text-blue-400" />} trend={`${Math.round((occupancy / capacity) * 100)}% e zene`} />
+            <StatCard label="Skanime Te Dites" value={scansToday ?? 0} icon={<Activity size={20} className="text-purple-400" />} trend="Hyrje dhe dalje" positive />
+          </div>
+
+          <OccupancyRealtime initialOccupancy={occupancy} capacity={capacity} zoneName={zoneName} />
         </div>
-        <div className="divide-y divide-white/5">
-          {(recentLogs?.length ?? 0) === 0 && (
-            <p className="px-6 py-8 text-sm text-slate-500 text-center">Nuk ka skanime sot.</p>
-          )}
-          {recentLogs?.map((log) => (
-            <div key={log.scanned_at + log.plate_id} className="px-6 py-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors">
-              <div className="flex items-center gap-4">
-                <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold ${log.action === 'ENTRY' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                  {log.action === 'ENTRY' ? '↓' : '↑'}
-                </div>
-                <div>
-                  <p className="text-sm font-mono font-bold text-white">{log.authorized_plates?.plate_number ?? '—'}</p>
-                  <p className="text-xs text-slate-500">{log.scan_method === 'QR' ? 'Skanim QR' : 'Manual'}</p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p className={`text-xs font-bold uppercase tracking-widest ${log.action === 'ENTRY' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {log.action === 'ENTRY' ? 'Hyrje' : 'Dalje'}
-                </p>
-                <p className="text-xs text-slate-500">{String(new Date(log.scanned_at).getUTCHours()).padStart(2, '0')}:{String(new Date(log.scanned_at).getUTCMinutes()).padStart(2, '0')}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      </section>
 
       <AnalyticsPanel
-        hourlyData={hourlyData}
+        dailyData={dailyTrend}
         avgStayMinutes={avgStayMinutes}
         totalEntries7d={totalEntries7d}
         totalExits7d={totalExits7d}
+      />
+
+      <AdminDashboardDock
+        notifications={notifications}
+        unreadCount={notificationsUnreadCount}
+        recentScans={recentScans}
       />
     </div>
   )
@@ -240,17 +230,19 @@ export default async function AdminDashboardPage() {
 
 function StatCard({ label, value, icon, trend, positive = false }) {
   return (
-    <div className="bg-[#050914]/60 backdrop-blur-xl p-6 rounded-[28px] border border-white/5 shadow-lg group hover:border-emerald-500/20 transition-all duration-500">
-      <div className="flex justify-between items-start mb-4">
-        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-center transition-transform group-hover:scale-110 duration-300">{icon}</div>
-        <div className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-tighter ${positive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-500'}`}>
+    <div className="group rounded-[28px] border border-white/5 bg-[#050914]/60 p-6 shadow-lg transition-all duration-500 hover:border-emerald-500/20 backdrop-blur-xl">
+      <div className="mb-4 flex items-start justify-between">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/5 bg-white/5 transition-transform duration-300 group-hover:scale-110">
+          {icon}
+        </div>
+        <div className={`flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-tighter ${positive ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-500/10 text-slate-500'}`}>
           <ArrowUpRight size={12} />
           {positive ? 'Live' : 'Standby'}
         </div>
       </div>
-      <div className="text-3xl font-black text-white tracking-tighter mb-1">{value}</div>
-      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{label}</div>
-      <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between">
+      <div className="mb-1 text-3xl font-black tracking-tighter text-white">{value}</div>
+      <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-4">
         <span className={`text-[10px] font-bold uppercase tracking-wider ${positive ? 'text-emerald-500' : 'text-slate-500'}`}>{trend}</span>
         <ChevronRight size={14} className="text-slate-700" />
       </div>
@@ -259,9 +251,8 @@ function StatCard({ label, value, icon, trend, positive = false }) {
 }
 
 function getReportPriority(report) {
-  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
-    return 'closed'
-  }
+  if (Number(report.follow_up_count ?? 0) > 0 && report.status !== 'zgjidhur' && report.status !== 'refuzuar') return 'overdue'
+  if (report.status === 'zgjidhur' || report.status === 'refuzuar') return 'closed'
 
   const ageHours = Math.max(0, (Date.now() - new Date(report.created_at).getTime()) / (1000 * 60 * 60))
   let score = 1
@@ -279,7 +270,7 @@ function getReportPriority(report) {
 }
 
 function getReportAnalytics(reports) {
-  const labels = ['Hen', 'Mar', 'Mër', 'Enj', 'Pre', 'Sht', 'Die']
+  const labels = ['Hen', 'Mar', 'Mer', 'Enj', 'Pre', 'Sht', 'Die']
   const now = new Date()
   const weeklyTrend = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(now)
@@ -295,35 +286,36 @@ function getReportAnalytics(reports) {
 
   const weeklyMap = new Map(weeklyTrend.map((item) => [item.key, item]))
   const categories = {
-    ndricim: 'Ndriçim',
+    ndricim: 'Ndricim',
     kanalizim: 'Kanalizim',
-    rruge: 'Rrugë',
+    rruge: 'Rruge',
     mbeturina: 'Mbeturina',
     akses: 'Akses',
-    tjeter: 'Tjetër',
+    tjeter: 'Tjeter',
   }
 
-  const priorityCounts = { urgent: 0, medium: 0, normal: 0 }
+  const priorityCounts = { overdue: 0, urgent: 0, medium: 0, normal: 0 }
   const categoryCounts = Object.fromEntries(Object.keys(categories).map((key) => [key, 0]))
+  const resolvedByDay = new Map()
+  const openByDay = new Map()
 
   for (const report of reports) {
     const key = new Date(report.created_at).toISOString().slice(0, 10)
     const bucket = weeklyMap.get(key)
     if (bucket) bucket.count += 1
-
-    if (report.category in categoryCounts) {
-      categoryCounts[report.category] += 1
+    if (report.status === 'zgjidhur') resolvedByDay.set(key, (resolvedByDay.get(key) ?? 0) + 1)
+    if (report.status !== 'zgjidhur' && report.status !== 'refuzuar') {
+      openByDay.set(key, (openByDay.get(key) ?? 0) + 1)
     }
+
+    if (report.category in categoryCounts) categoryCounts[report.category] += 1
 
     const priority = getReportPriority(report)
-    if (priority !== 'closed') {
-      priorityCounts[priority] += 1
-    }
+    if (priority !== 'closed') priorityCounts[priority] += 1
   }
 
   const total = reports.length
   const resolved = reports.filter((report) => report.status === 'zgjidhur').length
-  const withPhoto = reports.filter((report) => Boolean(report.photo_url)).length
   const weeklyPeak = Math.max(1, ...weeklyTrend.map((item) => item.count))
 
   const categorySummary = Object.entries(categories)
@@ -343,12 +335,15 @@ function getReportAnalytics(reports) {
   return {
     total,
     resolved,
-    withPhoto,
+    openTotal: priorityCounts.overdue + priorityCounts.urgent + priorityCounts.medium + priorityCounts.normal,
+    overdueOpen: priorityCounts.overdue,
     resolvedRate: total === 0 ? 0 : Math.round((resolved / total) * 100),
     urgentOpen: priorityCounts.urgent,
     mediumOpen: priorityCounts.medium,
     normalOpen: priorityCounts.normal,
     weeklyTrend,
+    weeklyResolvedTrend: weeklyTrend.map((item) => ({ ...item, count: resolvedByDay.get(item.key) ?? 0 })),
+    weeklyOpenTrend: weeklyTrend.map((item) => ({ ...item, count: openByDay.get(item.key) ?? 0 })),
     weeklyPeak,
     categorySummary,
   }
@@ -356,6 +351,7 @@ function getReportAnalytics(reports) {
 
 function PriorityRow({ label, value, tone }) {
   const classes = {
+    orange: 'border-orange-500/20 bg-orange-500/10 text-orange-300',
     rose: 'border-rose-500/20 bg-rose-500/10 text-rose-300',
     amber: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
     blue: 'border-blue-500/20 bg-blue-500/10 text-blue-300',

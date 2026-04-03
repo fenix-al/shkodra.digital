@@ -12,12 +12,19 @@ export default async function CitizenDashboardPage() {
   const supabase = await createServerSupabaseClient()
   const { profile } = await requireRole(supabase, [ROLES.CITIZEN])
 
-  const [{ data: plates }, { items: notifications, unreadCount }] = await Promise.all([
+  const [{ data: plates }, { data: reports }, { items: notifications, unreadCount }] = await Promise.all([
     supabase
       .from('authorized_plates')
       .select('id, plate_number, vehicle_type, status, valid_from, valid_until, created_at')
       .eq('owner_id', profile.id)
       .order('created_at', { ascending: false }),
+    supabase
+      .from('citizen_reports')
+      .select('id, category, description, status, created_at, photo_url, follow_up_count, last_follow_up_at')
+      .eq('reporter_id', profile.id)
+      .in('status', ['hapur', 'në_shqyrtim'])
+      .order('created_at', { ascending: false })
+      .limit(10),
     getCitizenNotifications(supabase, profile.id),
   ])
 
@@ -33,6 +40,7 @@ export default async function CitizenDashboardPage() {
       notificationsUnreadCount={unreadCount}
       notificationPreferences={notificationPreferences}
       plates={plates ?? []}
+      reports={reports ?? []}
       ownerName={profile.full_name ?? 'Qytetar'}
     />
   )

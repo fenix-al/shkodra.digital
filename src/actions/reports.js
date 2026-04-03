@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { requireRole, ROLES } from '@/lib/auth/roles'
 import { createNotification, REPORT_CATEGORY_LABELS } from '@/lib/notifications'
+import { REPORT_FOLLOW_UP_COOLDOWN_HOURS, REPORT_REVIEW_STATUS, getReportFollowUpState } from '@/lib/report-priority'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { createServiceSupabaseClient } from '@/lib/supabase/service'
 
@@ -235,4 +236,83 @@ export async function updateReportStatus(reportId, status) {
   revalidatePath('/admin/raportet')
   revalidatePath('/admin/dashboard')
   revalidatePath('/citizen/dashboard')
+}
+
+export async function followUpUnresolvedReport(reportId) {
+  const supabase = await createServerSupabaseClient()
+  const serviceSupabase = createServiceSupabaseClient()
+  const { profile } = await requireRole(supabase, [ROLES.CITIZEN])
+
+  const { data: report, error: reportError } = await supabase
+    .from('citizen_reports')
+    .select('id, reporter_id, category, status, created_at, photo_url, follow_up_count, last_follow_up_at')
+    .eq('id', reportId)
+    .eq('reporter_id', profile.id)
+    .single()
+
+  if (reportError || !report) {
+    return { error: 'Raporti nuk u gjet.' }
+  }
+
+  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
+    return { error: 'Ky raport eshte mbyllur dhe nuk mund te raportohet perseri.' }
+  }
+
+  const followUpState = getReportFollowUpState(report)
+  if (!followUpState.canFollowUp) {
+    return { error: `Mund ta raportoni perseri pas ${REPORT_FOLLOW_UP_COOLDOWN_HOURS} oresh nga raportimi ose kujtesa e fundit.` }
+  }
+
+  const followUpCount = Number(report.follow_up_count ?? 0) + 1
+  const lastFollowUpAt = new Date().toISOString()
+
+  const { data: updatedReport, error: updateError } = await serviceSupabase
+    .from('citizen_reports')
+    .update({
+      follow_up_count: followUpCount,
+      last_follow_up_at: lastFollowUpAt,
+      last_follow_up_note: 'Qytetari konfirmoi se raporti mbetet i pazgjidhur.',
+      status: report.status === 'hapur' ? 'hapur' : REPORT_REVIEW_STATUS,
+    })
+    .eq('id', reportId)
+    .eq('reporter_id', profile.id)
+    .select('id, follow_up_count, last_follow_up_at')
+    .single()
+
+  if (updateError || !updatedReport) {
+    return { error: 'Kujtesa per raportin nuk u ruajt. Provo perseri.' }
+  }
+
+  const categoryLabel = REPORT_CATEGORY_LABELS[report.category] ?? report.category
+
+  await Promise.all([
+    createNotification({
+      recipientId: profile.id,
+      actorId: profile.id,
+      title: 'Raporti u shenua si ende i pazgjidhur',
+      body: `Kujtesa juaj per ${categoryLabel.toLowerCase()} u regjistrua dhe raporti kaloi ne prioritet te larte per shqyrtim.`,
+      href: '/citizen/dashboard',
+      tone: 'amber',
+      icon: 'alert',
+      kind: 'report_follow_up',
+      metadata: { reportId, category: report.category, followUpCount: updatedReport.follow_up_count, photoUrl: report.photo_url ?? null },
+    }),
+    createNotification({
+      recipientRole: 'admin',
+      actorId: profile.id,
+      title: 'Raport i prapambetur',
+      body: `${categoryLabel} u raportua perseri si ende i pazgjidhur nga qytetari dhe kerkon reagim te menjehershem.`,
+      href: `/admin/raportet?reportId=${reportId}`,
+      tone: 'rose',
+      icon: 'alert',
+      kind: 'admin_report_follow_up',
+      metadata: { reportId, category: report.category, followUpCount: updatedReport.follow_up_count, photoUrl: report.photo_url ?? null },
+    }),
+  ])
+
+  revalidatePath('/citizen/dashboard')
+  revalidatePath('/admin/dashboard')
+  revalidatePath('/admin/raportet')
+
+  return { success: 'Raporti u shenua si ende i pazgjidhur.' }
 }

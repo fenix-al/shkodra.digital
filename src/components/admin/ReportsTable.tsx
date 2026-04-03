@@ -23,14 +23,15 @@ import {
 } from 'lucide-react'
 import { updateReportStatus } from '@/actions/reports'
 import { cx } from '@/lib/cx'
+import { getReportPriority } from '@/lib/report-priority'
 
 const REVIEW_STATUS = 'në_shqyrtim'
 
 type ReportStatus = 'hapur' | typeof REVIEW_STATUS | 'zgjidhur' | 'refuzuar'
-type PhotoFilter = 'all' | 'with_photo' | 'without_photo'
+type PriorityFilter = 'all' | 'overdue' | 'urgent' | 'medium' | 'normal'
 type CategoryFilter = 'all' | 'ndricim' | 'kanalizim' | 'rruge' | 'mbeturina' | 'akses' | 'tjeter'
 type SortOption = 'priority_desc' | 'newest' | 'oldest'
-type PriorityLevel = 'urgent' | 'medium' | 'normal'
+type PriorityLevel = 'overdue' | 'urgent' | 'medium' | 'normal'
 
 interface Report {
   id: string
@@ -42,6 +43,8 @@ interface Report {
   longitude: number | null
   created_at: string
   reporter_name: string | null
+  follow_up_count?: number | null
+  last_follow_up_at?: string | null
 }
 
 interface Props {
@@ -73,10 +76,12 @@ const STATUS_FILTERS: { value: 'all' | ReportStatus; label: string }[] = [
   { value: 'refuzuar', label: 'Refuzuar' },
 ]
 
-const PHOTO_FILTERS: { value: PhotoFilter; label: string }[] = [
-  { value: 'all', label: 'Të gjitha fotot' },
-  { value: 'with_photo', label: 'Me foto' },
-  { value: 'without_photo', label: 'Pa foto' },
+const PRIORITY_FILTERS: { value: PriorityFilter; label: string }[] = [
+  { value: 'all', label: 'Te gjitha nivelet' },
+  { value: 'overdue', label: 'Prapambetur' },
+  { value: 'urgent', label: 'Urgjent' },
+  { value: 'medium', label: 'Mesatar' },
+  { value: 'normal', label: 'Normal' },
 ]
 
 const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
@@ -137,32 +142,14 @@ function escapeHtml(value: string | number | null | undefined) {
     .replace(/'/g, '&#39;')
 }
 
-function getReportAgeHours(createdAt: string) {
-  return Math.max(0, (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60))
-}
-
 function getPriority(report: Report): { level: PriorityLevel; score: number; label: string; className: string } {
-  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
-    return { level: 'normal', score: 0, label: 'Mbyllur', className: 'border-slate-500/20 bg-slate-500/10 text-slate-400' }
+  const priority = getReportPriority(report)
+  return {
+    level: priority.level as PriorityLevel,
+    score: priority.score,
+    label: priority.label,
+    className: priority.badgeClass,
   }
-
-  const ageHours = getReportAgeHours(report.created_at)
-  let score = 1
-  if (report.category === 'akses') score += 2
-  if (report.category === 'ndricim') score += 1
-  if (report.photo_url) score += 1
-  if (report.latitude !== null && report.longitude !== null) score += 1
-  if (ageHours >= 72) score += 2
-  else if (ageHours >= 24) score += 1
-  if (report.status === REVIEW_STATUS) score += 1
-
-  if (score >= 5) {
-    return { level: 'urgent', score, label: 'Urgjent', className: 'border-rose-500/20 bg-rose-500/10 text-rose-300' }
-  }
-  if (score >= 3) {
-    return { level: 'medium', score, label: 'Mesatar', className: 'border-amber-500/20 bg-amber-500/10 text-amber-300' }
-  }
-  return { level: 'normal', score, label: 'Normal', className: 'border-blue-500/20 bg-blue-500/10 text-blue-300' }
 }
 
 function buildWeeklyTrend(reports: Report[]) {
@@ -185,12 +172,13 @@ function buildWeeklyTrend(reports: Report[]) {
   return days
 }
 
-function SummaryCard({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'rose' | 'amber' | 'blue' }) {
+function SummaryCard({ label, value, tone }: { label: string; value: number; tone: 'slate' | 'rose' | 'amber' | 'blue' | 'orange' }) {
   const toneClass = {
     slate: 'border-white/10 bg-white/[0.03] text-slate-300',
     rose: 'border-rose-500/20 bg-rose-500/10 text-rose-300',
     amber: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
     blue: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+    orange: 'border-orange-500/20 bg-orange-500/10 text-orange-300',
   }[tone]
 
   return (
@@ -201,11 +189,12 @@ function SummaryCard({ label, value, tone }: { label: string; value: number; ton
   )
 }
 
-function PrioritySummaryRow({ label, value, tone }: { label: string; value: number; tone: 'rose' | 'amber' | 'blue' }) {
+function PrioritySummaryRow({ label, value, tone }: { label: string; value: number; tone: 'rose' | 'amber' | 'blue' | 'orange' }) {
   const className = {
     rose: 'border-rose-500/20 bg-rose-500/10 text-rose-300',
     amber: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
     blue: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+    orange: 'border-orange-500/20 bg-orange-500/10 text-orange-300',
   }[tone]
 
   return (
@@ -238,7 +227,7 @@ function StatusBadge({ status }: { status: ReportStatus }) {
 export default function ReportsTable({ reports: baseReports, onFocusReport }: Props) {
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all')
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
-  const [photoFilter, setPhotoFilter] = useState<PhotoFilter>('all')
+  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('all')
   const [sortBy, setSortBy] = useState<SortOption>('priority_desc')
   const [search, setSearch] = useState('')
   const [detailReportId, setDetailReportId] = useState<string | null>(null)
@@ -314,7 +303,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     hapur: reports.filter((r) => r.status === 'hapur').length,
     neShqyrtim: reports.filter((r) => r.status === REVIEW_STATUS).length,
     zgjidhur: reports.filter((r) => r.status === 'zgjidhur').length,
-    meFoto: reports.filter((r) => Boolean(r.photo_url)).length,
+    prapambetur: reports.filter((r) => getPriority(r).level === 'overdue').length,
   }), [reports])
 
   const categorySummary = useMemo(() => {
@@ -338,7 +327,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
   const weeklyPeak = useMemo(() => Math.max(1, ...weeklyTrend.map((item) => item.count)), [weeklyTrend])
 
   const prioritySummary = useMemo(() => {
-    const summary = { urgent: 0, medium: 0, normal: 0 }
+    const summary = { overdue: 0, urgent: 0, medium: 0, normal: 0 }
     reports.forEach((report) => {
       summary[getPriority(report).level] += 1
     })
@@ -351,8 +340,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     const result = reports.filter((report) => {
       if (statusFilter !== 'all' && report.status !== statusFilter) return false
       if (categoryFilter !== 'all' && report.category !== categoryFilter) return false
-      if (photoFilter === 'with_photo' && !report.photo_url) return false
-      if (photoFilter === 'without_photo' && report.photo_url) return false
+      if (priorityFilter !== 'all' && getPriority(report).level !== priorityFilter) return false
 
       if (!query) return true
 
@@ -374,7 +362,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
       if (priorityDelta !== 0) return priorityDelta
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
-  }, [reports, statusFilter, categoryFilter, photoFilter, search, sortBy])
+  }, [reports, statusFilter, categoryFilter, priorityFilter, search, sortBy])
 
   const exportRows = useMemo(() => filtered.map((report) => ({
     id: report.id,
@@ -383,20 +371,16 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     priority: getPriority(report).label,
     reporter: report.reporter_name ?? 'Pa emër',
     description: report.description,
-    photo: report.photo_url ? 'Po' : 'Jo',
+    followUps: Number(report.follow_up_count ?? 0),
     coordinates: report.latitude !== null && report.longitude !== null ? `${report.latitude.toFixed(5)}, ${report.longitude.toFixed(5)}` : 'Pa koordinata',
     date: formatDate(report.created_at),
   })), [filtered])
-
-  const exportStamp = useMemo(() => {
-    return new Date().toISOString().slice(0, 10)
-  }, [])
 
   const activeFiltersLabel = useMemo(() => {
     const labels = [
       `Statusi: ${STATUS_FILTERS.find((option) => option.value === statusFilter)?.label ?? 'Të gjitha'}`,
       `Kategoria: ${CATEGORY_FILTERS.find((option) => option.value === categoryFilter)?.label ?? 'Të gjitha kategoritë'}`,
-      `Fotot: ${PHOTO_FILTERS.find((option) => option.value === photoFilter)?.label ?? 'Të gjitha fotot'}`,
+            `Prioriteti: ${PRIORITY_FILTERS.find((option) => option.value === priorityFilter)?.label ?? 'Te gjitha nivelet'}`,
       `Renditja: ${SORT_OPTIONS.find((option) => option.value === sortBy)?.label ?? 'Prioriteti më i lartë'}`,
     ]
 
@@ -405,17 +389,17 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     }
 
     return labels.join(' | ')
-  }, [categoryFilter, photoFilter, search, sortBy, statusFilter])
+  }, [categoryFilter, priorityFilter, search, sortBy, statusFilter])
 
   const exportSummary = useMemo(() => ([
     { label: 'Raporte në eksport', value: filtered.length },
+    { label: 'Prapambetura', value: filtered.filter((report) => getPriority(report).level === 'overdue').length },
     { label: 'Urgjente', value: filtered.filter((report) => getPriority(report).level === 'urgent').length },
-    { label: 'Me foto', value: filtered.filter((report) => Boolean(report.photo_url)).length },
     { label: 'Të zgjidhura', value: filtered.filter((report) => report.status === 'zgjidhur').length },
   ]), [filtered])
 
   function exportCsv() {
-    const headers = ['ID', 'Kategoria', 'Statusi', 'Prioriteti', 'Raportuar Nga', 'Pershkrimi', 'Ka Foto', 'Latitude', 'Longitude', 'Data']
+    const headers = ['ID', 'Kategoria', 'Statusi', 'Prioriteti', 'Raportuar Nga', 'Pershkrimi', 'Kujtesa', 'Latitude', 'Longitude', 'Data']
     const rows = filtered.map((report) => [
       report.id,
       CATEGORY_LABELS[report.category]?.label ?? report.category,
@@ -423,7 +407,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
       getPriority(report).label,
       report.reporter_name ?? '',
       report.description,
-      report.photo_url ? 'Po' : 'Jo',
+      Number(report.follow_up_count ?? 0),
       report.latitude ?? '',
       report.longitude ?? '',
       formatDate(report.created_at),
@@ -462,7 +446,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
           <Cell><Data ss:Type="String">${escapeHtml(row.priority)}</Data></Cell>
           <Cell><Data ss:Type="String">${escapeHtml(row.reporter)}</Data></Cell>
           <Cell><Data ss:Type="String">${escapeHtml(row.description)}</Data></Cell>
-          <Cell><Data ss:Type="String">${escapeHtml(row.photo)}</Data></Cell>
+          <Cell><Data ss:Type="String">${escapeHtml(row.followUps)}</Data></Cell>
           <Cell><Data ss:Type="String">${escapeHtml(row.coordinates)}</Data></Cell>
           <Cell><Data ss:Type="String">${escapeHtml(row.date)}</Data></Cell>
         </Row>
@@ -497,7 +481,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `raporte-qytetare-${exportStamp}.xls`
+    link.download = `raporte-qytetare-${new Date().toISOString().slice(0, 10)}.xls`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -521,7 +505,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
         <td>${escapeHtml(row.priority)}</td>
         <td>${escapeHtml(row.status)}</td>
         <td>${escapeHtml(row.reporter)}</td>
-        <td>${escapeHtml(row.photo)}</td>
+        <td>${escapeHtml(row.followUps)}</td>
         <td>${escapeHtml(row.coordinates)}</td>
         <td>${escapeHtml(row.description)}</td>
       </tr>
@@ -698,7 +682,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
           <SummaryCard label="Totali i Raporteve" value={counts.total} tone="slate" />
           <SummaryCard label="Të Hapura" value={counts.hapur} tone="rose" />
           <SummaryCard label="Në Shqyrtim" value={counts.neShqyrtim} tone="amber" />
-          <SummaryCard label="Me Foto" value={counts.meFoto} tone="blue" />
+          <SummaryCard label="Prapambetura" value={counts.prapambetur} tone="orange" />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
@@ -734,6 +718,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
               <Flame size={18} className="text-rose-400" />
             </div>
             <div className="flex flex-col gap-3">
+              <PrioritySummaryRow label="Prapambetur" value={prioritySummary.overdue} tone="orange" />
               <PrioritySummaryRow label="Urgjent" value={prioritySummary.urgent} tone="rose" />
               <PrioritySummaryRow label="Mesatar" value={prioritySummary.medium} tone="amber" />
               <PrioritySummaryRow label="Normal" value={prioritySummary.normal} tone="blue" />
@@ -795,8 +780,8 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
                   ))}
                 </select>
 
-                <select value={photoFilter} onChange={(e) => setPhotoFilter(e.target.value as PhotoFilter)} className="rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-sm text-slate-200 focus:outline-none">
-                  {PHOTO_FILTERS.map((option) => (
+                                <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)} className="rounded-2xl border border-white/5 bg-black/20 px-4 py-3 text-sm text-slate-200 focus:outline-none">
+                  {PRIORITY_FILTERS.map((option) => (
                     <option key={option.value} value={option.value} className="bg-slate-950">{option.label}</option>
                   ))}
                 </select>
@@ -813,7 +798,7 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setCategoryFilter('all'); setPhotoFilter('all'); setSortBy('priority_desc') }} className="px-4 py-3 rounded-2xl border border-white/10 text-sm font-semibold text-slate-300 hover:bg-white/5 transition-all active:scale-95">
+              <button type="button" onClick={() => { setSearch(''); setStatusFilter('all'); setCategoryFilter('all'); setPriorityFilter('all'); setSortBy('priority_desc') }} className="px-4 py-3 rounded-2xl border border-white/10 text-sm font-semibold text-slate-300 hover:bg-white/5 transition-all active:scale-95">
                 Pastro filtrat
               </button>
               <button type="button" onClick={exportExcel} className="flex items-center gap-2 px-4 py-3 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 text-sm font-bold text-emerald-300 hover:bg-emerald-400/15 transition-all active:scale-95">
@@ -956,3 +941,4 @@ export default function ReportsTable({ reports: baseReports, onFocusReport }: Pr
     </>
   )
 }
+

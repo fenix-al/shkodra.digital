@@ -1,5 +1,6 @@
 import { createServiceSupabaseClient } from '@/lib/supabase/service'
 import { buildNotificationEmail, isResendConfigured, sendTransactionalEmail } from '@/lib/email'
+import { getReportPriority as getSharedReportPriority } from '@/lib/report-priority'
 
 export const REPORT_CATEGORY_LABELS = {
   ndricim: 'Ndricim',
@@ -87,24 +88,7 @@ function isMissingNotificationsTable(error) {
 }
 
 function getReportPriority(report) {
-  if (report.status === 'zgjidhur' || report.status === 'refuzuar') {
-    return 'closed'
-  }
-
-  const ageHours = Math.max(0, (Date.now() - new Date(report.created_at).getTime()) / (1000 * 60 * 60))
-  let score = 1
-
-  if (report.category === 'akses') score += 2
-  if (report.category === 'ndricim') score += 1
-  if (report.photo_url) score += 1
-  if (report.latitude !== null && report.longitude !== null) score += 1
-  if (ageHours >= 72) score += 2
-  else if (ageHours >= 24) score += 1
-  if (report.status === 'në_shqyrtim') score += 1
-
-  if (score >= 5) return 'urgent'
-  if (score >= 3) return 'medium'
-  return 'normal'
+  return getSharedReportPriority(report).level
 }
 
 async function getNotificationPreferences(profileId) {
@@ -378,7 +362,7 @@ async function getAdminNotificationsFallback(supabase, { limit = 10 } = {}) {
   const [{ data: reports }, { data: plates }] = await Promise.all([
     supabase
       .from('citizen_reports')
-      .select('id, category, status, photo_url, latitude, longitude, created_at, reporter_id')
+      .select('id, category, status, photo_url, latitude, longitude, created_at, reporter_id, follow_up_count, last_follow_up_at')
       .order('created_at', { ascending: false })
       .limit(40),
     supabase
@@ -426,16 +410,18 @@ async function getAdminNotificationsFallback(supabase, { limit = 10 } = {}) {
 
     items.push(asNotification({
       audience: 'admin',
-      body: priority === 'urgent'
+      body: priority === 'overdue'
+        ? `${categoryLabel} nga ${reporterName} u raportua serish si i pazgjidhur dhe kerkon pergjigje te menjehershme.`
+        : priority === 'urgent'
         ? `${categoryLabel} nga ${reporterName} kerkon reagim te shpejte.`
         : `${categoryLabel} i ri nga ${reporterName}${report.photo_url ? ' me foto' : ''}.`,
       createdAt: report.created_at,
       href: `/admin/raportet?reportId=${report.id}`,
-      icon: priority === 'urgent' ? 'alert' : (report.photo_url ? 'camera' : 'report'),
+      icon: priority === 'overdue' || priority === 'urgent' ? 'alert' : (report.photo_url ? 'camera' : 'report'),
       id: `admin-report-${report.id}`,
       metadata: { reportId: report.id, category: report.category, photoUrl: report.photo_url ?? null },
-      title: priority === 'urgent' ? 'Raport urgent ne pritje' : 'Raport i ri qytetar',
-      tone: priority === 'urgent' ? 'rose' : (priority === 'medium' ? 'amber' : 'blue'),
+      title: priority === 'overdue' ? 'Raport i prapambetur' : priority === 'urgent' ? 'Raport urgent ne pritje' : 'Raport i ri qytetar',
+      tone: priority === 'overdue' || priority === 'urgent' ? 'rose' : (priority === 'medium' ? 'amber' : 'blue'),
     }))
   }
 

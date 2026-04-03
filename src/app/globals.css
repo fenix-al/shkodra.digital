@@ -193,3 +193,69 @@
   background: transparent !important;
   border: 0 !important;
 }
+
+.leaflet-interactive.leaflet-report-overdue {
+  animation: report-overdue-pulse 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes report-overdue-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(249, 115, 22, 0.18));
+  }
+
+  50% {
+    filter: drop-shadow(0 0 14px rgba(249, 115, 22, 0.88));
+  }
+
+  100% {
+    filter: drop-shadow(0 0 0 rgba(249, 115, 22, 0.18));
+  }
+}
+
+@keyframes report-trend-draw {
+  from {
+    stroke-dasharray: 400;
+    stroke-dashoffset: 400;
+  }
+  to {
+    stroke-dasharray: 400;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes report-trend-pulse {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.16);
+    opacity: 0.8;
+  }
+}
+
+@keyframes report-trend-area {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 0.95;
+    transform: translateY(0);
+  }
+}
+
+.report-trend-path {
+  animation: report-trend-draw 1.4s ease-out both;
+}
+
+.report-trend-area {
+  transform-origin: center bottom;
+  animation: report-trend-area 0.9s ease-out both;
+}
+
+.report-trend-pulse {
+  transform-origin: center;
+  animation: report-trend-pulse 2.2s ease-in-out infinite;
+}
